@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streaming Screen Overlay (OBS)</title>
+    <style>
+        :root{
+            /* Base theme color (requested). Opacity bumped up for better visibility. */
+            --accent: rgba(79,70,229,0.40);
+            --accent-strong: rgba(79,70,229,0.62);
+            --accent-solid: rgba(79,70,229,0.88);
+            --fg: #eaeef8;
+            --muted: rgba(234,238,248,0.65);
+            --glass: rgba(255,255,255,0.08);
+            --width-game: 1600px;
+            --height-game: 900px;
+            --sidebar-w: 360px;
+            --bottombar-h: 100px;
+
+            /* Typography (tuned for OBS readability) */
+            --font-chat-header: 16px;
+            --font-chat-msg: 15px;
+            --font-announce: 20px;
+            --font-xid: 18px;
+
+            /* Logo: zoom inside the frame (keeps aspect ratio & prevents overflow) */
+            --logo-zoom: 1.18;
+        }
+
+          /* Make background transparent so OBS can composite.
+              NOTE: In normal browsers, a fully-transparent page can look like "nothing is displayed".
+              Use ?preview=1 to show a faint background and guide frames. */
+          html,body{height:100%;margin:0;background:transparent;font-family:Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;color:var(--fg);}
+
+        /* Overall stage matches game + sidebar + bottom bar */
+        .stage{
+            width: calc(var(--width-game) + var(--sidebar-w));
+            height: calc(var(--height-game) + var(--bottombar-h));
+            position:relative;
+            box-sizing: border-box;
+            background: transparent;
+        }
+
+        /* Preview mode (browser-friendly). Toggle with ?preview=1 */
+    body.preview{background: radial-gradient(1200px 700px at 20% 20%, rgba(79,70,229,0.16), rgba(0,0,0,0.0)), rgba(10,12,18,0.90);}
+        body.preview .stage{margin: 18px;}
+
+        /* Left: reserved area (transparent) exactly 1600x900 for the game capture to sit under/next to */
+        .game-area{
+            width: var(--width-game);
+            height: var(--height-game);
+            float:left;
+            box-sizing:border-box;
+            position:relative;
+        }
+
+        body.preview .game-area{
+            outline: 2px dashed rgba(234,238,248,0.32);
+            outline-offset: -6px;
+        }
+
+        .corner-label{
+            position:absolute;
+            left:12px;
+            top:12px;
+            font-size:12px;
+            color: rgba(234,238,248,0.75);
+            background: rgba(10,12,18,0.55);
+            border: 1px solid rgba(255,255,255,0.06);
+            padding: 6px 8px;
+            border-radius: 10px;
+            display:none;
+        }
+
+        body.preview .corner-label{display:inline-block;}
+
+        /* Right sidebar for chat */
+        .sidebar{
+            position:absolute;
+            right:0;
+            top:0;
+            width:var(--sidebar-w);
+            height:var(--height-game);
+            padding:18px;
+            box-sizing:border-box;
+            backdrop-filter: blur(6px);
+            -webkit-backdrop-filter: blur(6px);
+        }
+
+        .chat-card{
+            width:100%;
+            height:100%;
+            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+            border-radius:14px;
+            border:1px solid rgba(255,255,255,0.07);
+            padding:12px;
+            box-sizing:border-box;
+            display:flex;
+            flex-direction:column;
+            gap:10px;
+            outline: 1px solid var(--accent-strong);
+            box-shadow: 0 18px 44px rgba(0,0,0,0.22);
+        }
+
+        .chat-header{
+            font-weight:600;
+            font-size:var(--font-chat-header);
+            color:var(--muted);
+            display:flex;
+            align-items:center;
+            gap:8px;
+        }
+
+        .chat-body{
+            flex:1; overflow:auto; padding-right:6px;
+            display:flex;flex-direction:column;gap:8px;
+        }
+
+        .msg{
+            padding:10px 12px; border-radius:10px; background:var(--glass); color:var(--fg); font-size:var(--font-chat-msg); max-width:100%;
+            line-height: 1.35;
+            box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+        }
+
+        /* Bottom bar across full stage */
+        .bottom-bar{
+            position:absolute;
+            left:0; bottom:0;
+            width:100%;
+            height:var(--bottombar-h);
+            display:flex;align-items:center;gap:18px;
+            padding:12px 20px; box-sizing:border-box;
+            /* Make the bottom bar more present (darker + subtle depth) */
+            background: linear-gradient(90deg, var(--accent-solid), rgba(79,70,229,0.38) 55%, rgba(0,0,0,0.10));
+            border-top-left-radius:18px;
+            border-top-right-radius:0;
+            border-top:1px solid rgba(255,255,255,0.10);
+            box-shadow: 0 -14px 40px rgba(0,0,0,0.24);
+        }
+
+        /* Logo: designed to handle wide images like 1080x360 without distortion */
+        .logo{
+            width:180px; height:60px;
+            border-radius:12px;
+            overflow:hidden;
+            display:flex;align-items:center;justify-content:center;
+            background:rgba(255,255,255,0.03);
+            border:1px solid rgba(255,255,255,0.06);
+            padding:6px;
+            box-sizing:border-box;
+        }
+
+        /* Zoom the image slightly for readability, but keep it clipped inside the frame */
+        .logo img{width:100%;height:100%;object-fit:contain;display:block;transform:scale(var(--logo-zoom));transform-origin:center center}
+
+    .announce{flex:1; font-size:var(--font-announce); color:var(--fg); opacity:0.98; letter-spacing: 0.2px;}
+
+    .xid{font-weight:700;color: rgba(234,238,248,0.78); font-size:var(--font-xid); min-width:260px;text-align:right}
+
+        /* small responsive helper when showing in browser window */
+        @media (max-width:1200px){
+            .stage{transform:scale(0.8);transform-origin:top left}
+        }
+    </style>
+    <script>
+        // Helper: read URL params to customize logo, announcement, xid, and chat iframe
+        function qp(name, fallback){
+            const url = new URL(window.location.href);
+            return url.searchParams.get(name) || fallback;
+        }
+
+        function clamp(n, min, max){
+            return Math.min(max, Math.max(min, n));
+        }
+
+        document.addEventListener('DOMContentLoaded', ()=>{
+            // Preview mode: shows a faint background + guide frames for local browser viewing
+            const preview = (qp('preview','0') === '1');
+            if(preview) document.body.classList.add('preview');
+
+            // OBS 1080p mode: fit the whole overlay into 1920x1080 without scaling in OBS
+            // Layout: 1600x900 game + 320px sidebar = 1920 width, and 180px bottom bar = 1080 height
+            const mode = qp('mode','');
+            if(mode === '1080'){
+                document.documentElement.style.setProperty('--sidebar-w','320px');
+                document.documentElement.style.setProperty('--bottombar-h','180px');
+
+                // bump typography slightly for 1080p view
+                document.documentElement.style.setProperty('--font-chat-header','18px');
+                document.documentElement.style.setProperty('--font-chat-msg','16px');
+                document.documentElement.style.setProperty('--font-announce','24px');
+                document.documentElement.style.setProperty('--font-xid','20px');
+            }
+
+            // Optional: control logo zoom from URL (e.g. ?logoZoom=1.25)
+            const logoZoomParam = parseFloat(qp('logoZoom',''));
+            if(!Number.isNaN(logoZoomParam)){
+                document.documentElement.style.setProperty('--logo-zoom', String(clamp(logoZoomParam, 1.0, 1.6)));
+            }
+
+            // Set text fields
+            const chan = qp('channel','Channel Name');
+            const announce = qp('announce','Welcome to the stream! Enjoy your stay.');
+            const xid = qp('xid','@your_x_id');
+            const logo = qp('logo','');
+            const chatUrl = qp('chat','');
+
+            document.getElementById('announce').textContent = announce;
+            document.getElementById('xid').textContent = xid;
+
+            const logoImg = document.getElementById('logo-img');
+            if(logo){
+                logoImg.src = decodeURIComponent(logo);
+                logoImg.alt = chan + ' logo';
+            } else {
+                // Default logo from local assets
+                logoImg.src = './assets/logo.jpg';
+                logoImg.alt = chan + ' logo';
+            }
+
+            // Chat handling: if chat param present use iframe, otherwise show sample messages
+            const chatContainer = document.getElementById('chat-body');
+            if(chatUrl){
+                // Use provided chat URL (encoded allowed)
+                const iframe = document.createElement('iframe');
+                iframe.src = decodeURIComponent(chatUrl);
+                iframe.style.border='0'; iframe.style.width='100%'; iframe.style.height='100%'; iframe.style.borderRadius='8px';
+                iframe.allow = 'microphone; camera; autoplay';
+                chatContainer.innerHTML='';
+                chatContainer.appendChild(iframe);
+            } else {
+                // sample dummy messages
+                const msgs = [
+                    {n:'Viewer1', m:'Nice play!'},
+                    {n:'Viewer2', m:'Where did you farm that item?'},
+                    {n:'Mod', m:'Reminder: Be respectful to everyone.'},
+                    {n:'Viewer3', m:'Love the new overlay!'},
+                ];
+                chatContainer.innerHTML='';
+                msgs.forEach(o=>{
+                    const d = document.createElement('div'); d.className='msg';
+                    d.textContent = o.n + ': ' + o.m;
+                    chatContainer.appendChild(d);
+                });
+            }
+        });
+    </script>
+</head>
+<body>
+    <div class="stage" role="presentation">
+        <div class="game-area" aria-hidden="true">
+            <div class="corner-label">GAME AREA (1600×900) / ここにゲーム映像</div>
+            <!-- Transparent reserved area: place your game capture in OBS below/left so it fills this 1600x900 region -->
+        </div>
+
+        <div class="sidebar" aria-label="chat sidebar">
+            <div class="chat-card">
+                <div class="chat-header">Chat</div>
+                <div id="chat-body" class="chat-body">
+                    <!-- JS will either place an iframe here (if ?chat=...) or sample messages -->
+                </div>
+            </div>
+        </div>
+
+        <div class="bottom-bar" aria-label="stream info bar">
+            <div class="logo"><img id="logo-img" src="" alt="logo"></div>
+            <div class="announce" id="announce">Welcome to the stream! Enjoy your stay.</div>
+            <div class="xid" id="xid">@your_x_id</div>
+        </div>
+    </div>
+</body>
+</html>
