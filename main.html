@@ -176,6 +176,54 @@
         @media (max-width:1200px){
             .stage{transform:scale(0.8);transform-origin:top left}
         }
+
+        /* Event notification toast (for SuperChat / Membership etc.) */
+        .toast{
+            position:absolute;
+            left:20px;
+            top:20px;
+            z-index:50;
+            width:min(560px, calc(var(--width-game) - 40px));
+            padding:14px 16px;
+            border-radius:16px;
+            background: rgba(20, 30, 55, 0.92);
+            border: 1px solid rgba(234,238,248,0.10);
+            box-shadow: 0 18px 54px rgba(0,0,0,0.34);
+            display:none;
+        }
+
+        .toast.show{display:block; animation: toastIn 220ms ease-out;}
+
+        .toast .t-title{font-weight:800;font-size:20px;letter-spacing:0.2px; margin-bottom:4px;}
+        .toast .t-body{font-size:18px;color: rgba(234,238,248,0.86); line-height:1.25;}
+
+        .toast.type-superchat{background: rgba(20, 30, 55, 0.96); outline: 2px solid rgba(255, 196, 0, 0.60);}
+        .toast.type-membership{background: rgba(20, 30, 55, 0.96); outline: 2px solid rgba(0, 214, 143, 0.55);}
+        .toast.type-gift{background: rgba(20, 30, 55, 0.96); outline: 2px solid rgba(92, 167, 255, 0.55);}
+
+        @keyframes toastIn{
+            from{transform:translateY(-10px); opacity:0;}
+            to{transform:translateY(0); opacity:1;}
+        }
+
+        /* Small auth hint (preview only) */
+        .auth-hint{
+            position:absolute;
+            right:20px;
+            top:20px;
+            z-index:60;
+            width: calc(var(--sidebar-w) - 40px);
+            padding:12px 12px;
+            background: rgba(20, 30, 55, 0.86);
+            border: 1px solid rgba(234,238,248,0.10);
+            border-radius: 14px;
+            display:none;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.28);
+        }
+        .auth-hint .a-title{font-weight:800;color: rgba(234,238,248,0.90); margin-bottom:6px;}
+        .auth-hint .a-body{font-size:14px;color: rgba(234,238,248,0.74); line-height:1.35;}
+        .auth-hint a{color: rgba(234,238,248,0.92); font-weight:700; text-decoration: underline;}
+        body.preview .auth-hint{display:block;}
     </style>
     <script>
         // Helper: read URL params to customize logo, announcement, xid, and chat iframe
@@ -186,6 +234,57 @@
 
         function clamp(n, min, max){
             return Math.min(max, Math.max(min, n));
+        }
+
+        function sanitizeText(s){
+            // Keep it simple: this overlay only needs plain text.
+            return String(s ?? '').replace(/[\r\n\t]+/g, ' ').trim();
+        }
+
+        function showToast({title, body, type, ms}){
+            const toast = document.getElementById('toast');
+            const tTitle = document.getElementById('toast-title');
+            const tBody = document.getElementById('toast-body');
+
+            const safeTitle = sanitizeText(title);
+            const safeBody = sanitizeText(body);
+
+            tTitle.textContent = safeTitle || '通知';
+            tBody.textContent = safeBody;
+
+            toast.classList.remove('type-superchat','type-membership','type-gift');
+            const t = (type || '').toLowerCase();
+            if(t === 'superchat') toast.classList.add('type-superchat');
+            else if(t === 'membership') toast.classList.add('type-membership');
+            else if(t === 'gift') toast.classList.add('type-gift');
+
+            toast.classList.add('show');
+            const dur = Number.isFinite(ms) ? ms : 7000;
+
+            window.clearTimeout(showToast._timer);
+            showToast._timer = window.setTimeout(()=>{
+                toast.classList.remove('show');
+            }, Math.max(800, dur));
+        }
+
+        function startSse(){
+            if(!('EventSource' in window)) return;
+            try{
+                const es = new EventSource('/api/events');
+                es.addEventListener('yt', (ev)=>{
+                    let data = null;
+                    try{ data = JSON.parse(ev.data); }catch(_){ return; }
+                    if(!data) return;
+                    if(data.kind === 'toast'){
+                        showToast({ title: data.title, body: data.body, type: data.type, ms: data.ms });
+                    }
+                });
+                es.onerror = () => {
+                    // Silent: in OBS you may not have auth configured.
+                };
+            } catch(_){
+                // ignore
+            }
         }
 
         document.addEventListener('DOMContentLoaded', ()=>{
@@ -205,6 +304,44 @@
             if(!Number.isNaN(logoZoomParam)){
                 document.documentElement.style.setProperty('--logo-zoom', String(clamp(logoZoomParam, 1.0, 1.6)));
             }
+
+            // Optional one-shot notification (useful for testing):
+            //   ?notify=Thanks%21&notifyType=superchat
+            const notify = qp('notify','');
+            const notifyType = qp('notifyType','');
+            if(notify){
+                showToast({
+                    title: notifyType ? notifyType.toUpperCase() : '通知',
+                    body: decodeURIComponent(notify),
+                    type: notifyType,
+                    ms: 9000
+                });
+            }
+
+            // Live notifications from other browser sources (same origin):
+            // Sender side example:
+            //   const ch = new BroadcastChannel('streaming-screen');
+            //   ch.postMessage({type:'superchat', title:'SUPERCHAT', body:'◯◯さん: ¥5000 ありがとう！'});
+            try{
+                const bc = new BroadcastChannel('streaming-screen');
+                bc.addEventListener('message', (ev)=>{
+                    const msg = ev.data || {};
+                    if(msg && (msg.body || msg.title)){
+                        showToast({
+                            title: msg.title || '通知',
+                            body: msg.body || '',
+                            type: msg.type || '',
+                            ms: Number(msg.ms) || 7000
+                        });
+                    }
+                });
+            } catch(e){
+                // Some environments may not support BroadcastChannel.
+            }
+
+            // Server-driven notifications (SSE) for YouTube events
+            // - Requires server-side OAuth setup
+            startSse();
 
             // Set text fields
             const chan = qp('channel','Channel Name');
@@ -226,7 +363,7 @@
                 logoImg.alt = chan + ' logo';
             }
 
-            // Chat handling: if chat param present use iframe, otherwise show sample messages
+            // Chat handling: if chat param present use iframe, otherwise keep empty
             const chatContainer = document.getElementById('chat-body');
             if(chatUrl){
                 // Use provided chat URL (encoded allowed)
@@ -237,25 +374,33 @@
                 chatContainer.innerHTML='';
                 chatContainer.appendChild(iframe);
             } else {
-                // sample dummy messages
-                const msgs = [
-                    {n:'Viewer1', m:'Nice play!'},
-                    {n:'Viewer2', m:'Where did you farm that item?'},
-                    {n:'Mod', m:'Reminder: Be respectful to everyone.'},
-                    {n:'Viewer3', m:'Love the new overlay!'},
-                ];
-                chatContainer.innerHTML='';
-                msgs.forEach(o=>{
-                    const d = document.createElement('div'); d.className='msg';
-                    d.textContent = o.n + ': ' + o.m;
-                    chatContainer.appendChild(d);
-                });
+                // No chat URL provided: keep it empty.
+                // In preview mode, show a small hint so it's obvious nothing is broken.
+                chatContainer.innerHTML = '';
+                if(preview){
+                    const hint = document.createElement('div');
+                    hint.className = 'msg';
+                    hint.textContent = 'チャットURL未設定（?chat=... を指定するとここに表示されます）';
+                    chatContainer.appendChild(hint);
+                }
             }
         });
     </script>
 </head>
 <body>
     <div class="stage" role="presentation">
+        <div class="auth-hint" aria-hidden="true">
+            <div class="a-title">YouTube通知（自作API連携）</div>
+            <div class="a-body">
+                プレビュー中に、YouTubeの認証を済ませると<br>
+                スーパーチャット/メンバー通知を表示できます。<br>
+                <a href="/api/auth/start" target="_blank" rel="noopener">YouTubeにログイン（認可）</a>
+            </div>
+        </div>
+        <div id="toast" class="toast" aria-live="polite" aria-atomic="true">
+            <div id="toast-title" class="t-title">通知</div>
+            <div id="toast-body" class="t-body"></div>
+        </div>
         <div class="game-area" aria-hidden="true">
             <div class="corner-label">GAME AREA (1600×900) / ここにゲーム映像</div>
             <!-- Transparent reserved area: place your game capture in OBS below/left so it fills this 1600x900 region -->
