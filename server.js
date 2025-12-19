@@ -70,10 +70,13 @@ function broadcastEvent(evt) {
 async function getLiveChatId(youtube) {
   // Find the channel's active live broadcast and return liveChatId.
   // Note: This requires the authorized account to have access.
+  // IMPORTANT: `mine` and `broadcastStatus` are incompatible in YouTube Data API.
+  // Use `status=active` instead.
+  // Ref: error "Incompatible parameters specified in the request: mine, broadcastStatus"
   const list = await youtube.liveBroadcasts.list({
     part: ['snippet'],
-    broadcastStatus: 'active',
     mine: true,
+    status: 'active',
     maxResults: 5
   });
   const items = list.data.items || [];
