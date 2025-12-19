@@ -1,0 +1,14 @@
+{
+  "name": "streaming-screen",
+  "private": true,
+  "version": "0.1.0",
+  "description": "OBS BrowserSource overlay (static) served via Node for Railway",
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

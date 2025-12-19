@@ -23,6 +23,19 @@ URL に `?preview=1` を付けると、背景とガイド枠が出て見える�
 
 BrowserSource の幅/高さを **1960×1000** に設定してください。
 
+## Railway でホストする（おすすめ）
+このリポジトリは Railway でそのままデプロイできるように、Node(Express) で静的配信する設定を入れています。
+
+1. Railway で New Project → GitHub Repo を選択
+2. Deploy を実行（`package.json` を検知して自動ビルドされます）
+3. デプロイ後の URL を OBS の BrowserSource に貼り付けます
+
+### OBS で使うURL例
+- 通常（透明合成向け）: `https://<your-app>.railway.app/?mode=1080`
+- ローカルプレビュー相当: `https://<your-app>.railway.app/?preview=1&mode=1080`
+
+※ Railway 側の PORT はプラットフォームが自動で渡すため、特別な環境変数設定は不要です。
+
 ## カスタマイズ（URLパラメータ）
 ブラウザソースの URL に付けて変更できます。
 
