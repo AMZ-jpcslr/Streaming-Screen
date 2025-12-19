@@ -224,6 +224,30 @@
         .auth-hint .a-body{font-size:14px;color: rgba(234,238,248,0.74); line-height:1.35;}
         .auth-hint a{color: rgba(234,238,248,0.92); font-weight:700; text-decoration: underline;}
         body.preview .auth-hint{display:block;}
+
+        /* Debug/status panel (preview only) */
+        .status-panel{
+            position:absolute;
+            left:20px;
+            top:110px;
+            z-index:60;
+            width:min(560px, calc(var(--width-game) - 40px));
+            padding:12px 12px;
+            background: rgba(20, 30, 55, 0.84);
+            border: 1px solid rgba(234,238,248,0.10);
+            border-radius: 16px;
+            display:none;
+            box-shadow: 0 12px 30px rgba(0,0,0,0.28);
+        }
+        body.preview .status-panel{display:block;}
+        .status-panel .s-title{font-weight:900; margin-bottom:6px;}
+        .status-panel .s-grid{display:grid; grid-template-columns: 160px 1fr; gap:4px 10px; font-size:13px;}
+        .status-panel .k{color: rgba(234,238,248,0.68);}
+        .status-panel .v{color: rgba(234,238,248,0.90); word-break: break-all;}
+        .status-panel .badge{display:inline-block; padding:2px 8px; border-radius:999px; font-weight:800; font-size:12px; margin-right:8px;}
+        .badge.ok{background: rgba(0, 214, 143, 0.22); border:1px solid rgba(0, 214, 143, 0.35);}
+        .badge.ng{background: rgba(255, 92, 92, 0.16); border:1px solid rgba(255, 92, 92, 0.28);}
+        .badge.warn{background: rgba(255, 196, 0, 0.16); border:1px solid rgba(255, 196, 0, 0.26);}
     </style>
     <script>
         // Helper: read URL params to customize logo, announcement, xid, and chat iframe
@@ -267,6 +291,28 @@
             }, Math.max(800, dur));
         }
 
+        function appendChatMessage({name, text}){
+            const chatContainer = document.getElementById('chat-body');
+            if(!chatContainer) return;
+
+            const d = document.createElement('div');
+            d.className = 'msg';
+            d.textContent = `${sanitizeText(name)}: ${sanitizeText(text)}`;
+            chatContainer.appendChild(d);
+
+            // cap messages to keep DOM light
+            const MAX = 80;
+            while(chatContainer.children.length > MAX){
+                chatContainer.removeChild(chatContainer.firstElementChild);
+            }
+
+            // auto-scroll if user is at bottom (or close)
+            const nearBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 40;
+            if(nearBottom){
+                chatContainer.scrollTop = chatContainer.scrollHeight;
+            }
+        }
+
         function startSse(){
             if(!('EventSource' in window)) return;
             try{
@@ -277,11 +323,54 @@
                     if(!data) return;
                     if(data.kind === 'toast'){
                         showToast({ title: data.title, body: data.body, type: data.type, ms: data.ms });
+                    } else if(data.kind === 'chat'){
+                        appendChatMessage({ name: data.name, text: data.text });
                     }
                 });
                 es.onerror = () => {
                     // Silent: in OBS you may not have auth configured.
                 };
+            } catch(_){
+                // ignore
+            }
+        }
+
+        async function pollStatus(){
+            try{
+                const [a, y] = await Promise.all([
+                    fetch('/api/auth/status', { cache: 'no-store' }),
+                    fetch('/api/yt/state', { cache: 'no-store' })
+                ]);
+                if(!a.ok || !y.ok) return;
+                const auth = await a.json();
+                const yt = await y.json();
+
+                const el = document.getElementById('status-grid');
+                if(!el) return;
+
+                const statusText = (yt?.lastStatus?.message || '').toString();
+                const level = (yt?.lastStatus?.level || 'info').toString();
+                const oauthOk = !!auth.oauthConfigured;
+                const authed = !!auth.authed;
+                const hasChat = !!yt.activeLiveChatId;
+
+                const badge = (cls, text) => `<span class="badge ${cls}">${text}</span>`;
+                const authBadge = oauthOk ? badge('ok','env OK') : badge('ng','env NG');
+                const tokenBadge = authed ? badge('ok','authed') : badge('warn','not authed');
+                const chatBadge = hasChat ? badge('ok','live OK') : badge('warn','no live');
+
+                const rows = [
+                    ['OAuth設定', `${authBadge} ${tokenBadge}`],
+                    ['ライブ検出', `${chatBadge}`],
+                    ['liveChatId', yt.activeLiveChatId || '-'],
+                    ['SSE接続数', String(yt.sseClients ?? '-')],
+                    ['Polling', `${yt.polling ? 'ON' : 'OFF'} (${yt.pollMs ?? '-'}ms)`],
+                    ['lastPollAt', yt.lastPollAt || '-'],
+                    ['lastSeenMessageId', yt.lastSeenMessageId || '-'],
+                    ['status', `${level.toUpperCase()}: ${sanitizeText(statusText)}`],
+                ];
+
+                el.innerHTML = rows.map(([k,v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
             } catch(_){
                 // ignore
             }
@@ -343,6 +432,12 @@
             // - Requires server-side OAuth setup
             startSse();
 
+            // Preview-only status panel
+            if(preview){
+                pollStatus();
+                window.setInterval(pollStatus, 2500);
+            }
+
             // Set text fields
             const chan = qp('channel','Channel Name');
             const announce = qp('announce','はの【ゲーム実況】チャンネルにようこそ！');
@@ -363,7 +458,9 @@
                 logoImg.alt = chan + ' logo';
             }
 
-            // Chat handling: if chat param present use iframe, otherwise keep empty
+            // Chat handling:
+            // - If ?chat is provided, use iframe (legacy/external chat embed)
+            // - Otherwise, this pane will be filled by YouTube API (SSE) after OAuth
             const chatContainer = document.getElementById('chat-body');
             if(chatUrl){
                 // Use provided chat URL (encoded allowed)
@@ -380,7 +477,7 @@
                 if(preview){
                     const hint = document.createElement('div');
                     hint.className = 'msg';
-                    hint.textContent = 'チャットURL未設定（?chat=... を指定するとここに表示されます）';
+                    hint.textContent = 'YouTube認可後、この枠にコメントが流れます（または ?chat=... でiframe表示）';
                     chatContainer.appendChild(hint);
                 }
             }
@@ -400,6 +497,11 @@
         <div id="toast" class="toast" aria-live="polite" aria-atomic="true">
             <div id="toast-title" class="t-title">通知</div>
             <div id="toast-body" class="t-body"></div>
+        </div>
+
+        <div class="status-panel" aria-hidden="true">
+            <div class="s-title">デバッグ / ステータス（previewのみ）</div>
+            <div id="status-grid" class="s-grid"></div>
         </div>
         <div class="game-area" aria-hidden="true">
             <div class="corner-label">GAME AREA (1600×900) / ここにゲーム映像</div>

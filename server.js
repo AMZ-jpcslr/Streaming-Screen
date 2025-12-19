@@ -53,8 +53,14 @@ const sseClients = new Set();
 let pollTimer = null;
 let lastSeenMessageId = null;
 let activeLiveChatId = null;
+let lastStatus = { kind: 'status', level: 'info', message: 'idle', ts: new Date().toISOString() };
+let lastPollAt = null;
 
 function broadcastEvent(evt) {
+  // Keep last status for debugging UIs
+  if (evt?.kind === 'status') {
+    lastStatus = { ...evt, ts: new Date().toISOString() };
+  }
   const payload = `event: yt\ndata: ${escapeSseData(evt)}\n\n`;
   for (const res of sseClients) {
     try { res.write(payload); } catch (_) { /* ignore */ }
@@ -127,6 +133,8 @@ async function pollLiveChat(oauthTokens) {
   if (!oauthConfigured) return;
   if (!oauthTokens) return;
 
+  lastPollAt = new Date().toISOString();
+
   const auth = createOAuthClient();
   auth.setCredentials(oauthTokens);
   const youtube = google.youtube({ version: 'v3', auth });
@@ -141,6 +149,8 @@ async function pollLiveChat(oauthTokens) {
     broadcastEvent({ kind: 'status', level: 'info', message: 'ライブチャットIDを取得しました' });
   }
 
+  broadcastEvent({ kind: 'status', level: 'info', message: 'YouTubeコメントを取得中…' });
+
   const resp = await youtube.liveChatMessages.list({
     liveChatId: activeLiveChatId,
     part: ['snippet', 'authorDetails'],
@@ -149,18 +159,40 @@ async function pollLiveChat(oauthTokens) {
 
   const items = resp.data.items || [];
 
-  for (const item of items) {
+  // Send messages in chronological order.
+  // API returns newest first; reverse for chat display.
+  const toProcess = items.slice();
+  toProcess.reverse();
+
+  let hitLastSeen = false;
+
+  for (const item of toProcess) {
     const id = item.id;
     if (lastSeenMessageId && id === lastSeenMessageId) {
-      // we've reached already-processed message
-      break;
+      hitLastSeen = true;
+      continue;
+    }
+    if (lastSeenMessageId && !hitLastSeen) {
+      // Skip older messages until we reach lastSeen
+      continue;
+    }
+
+    const name = item?.authorDetails?.displayName || 'Someone';
+    const text = String(item?.snippet?.displayMessage || '').trim();
+
+    // Always broadcast normal chat messages (best-effort)
+    if (text) {
+      broadcastEvent({
+        kind: 'chat',
+        id,
+        name,
+        text,
+        publishedAt: item?.snippet?.publishedAt || null
+      });
     }
 
     const special = classifySpecialEvent(item);
     if (special) {
-      const name = item?.authorDetails?.displayName || 'Someone';
-      const text = item?.snippet?.displayMessage || '';
-
       if (special.type === 'superchat') {
         broadcastEvent({
           kind: 'toast',
@@ -191,9 +223,11 @@ async function pollLiveChat(oauthTokens) {
   }
 
   if (items.length > 0) {
-    // Set lastSeen to latest message id
+    // newest is first in original list
     lastSeenMessageId = items[0].id;
   }
+
+  broadcastEvent({ kind: 'status', level: 'info', message: `取得完了（items=${items.length}）` });
 }
 
 function ensurePolling(session) {
@@ -265,6 +299,22 @@ app.get('/api/auth/logout', (req, res) => {
   lastSeenMessageId = null;
   activeLiveChatId = null;
   res.redirect('/');
+});
+
+// ---- Debug state endpoint (for preview UI) ----
+app.get('/api/yt/state', (req, res) => {
+  res.json({
+    oauthConfigured,
+    authed: Boolean(req.session?.oauthTokens),
+    hasRefreshToken: Boolean(req.session?.oauthTokens?.refresh_token),
+    pollMs: Math.max(1200, YT_POLL_MS),
+    polling: Boolean(pollTimer),
+    sseClients: sseClients.size,
+    activeLiveChatId: activeLiveChatId || null,
+    lastSeenMessageId: lastSeenMessageId || null,
+    lastPollAt,
+    lastStatus
+  });
 });
 
 // ---- SSE events endpoint ----
