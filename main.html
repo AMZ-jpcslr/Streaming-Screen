@@ -7,22 +7,31 @@
     <style>
         :root{
             /* Base theme color (requested). Opacity bumped up for better visibility. */
-            --accent: rgba(79,70,229,0.40);
-            --accent-strong: rgba(79,70,229,0.62);
-            --accent-solid: rgba(79,70,229,0.88);
+            /* Theme base (requested): RGB(20, 30, 55) */
+            --base: rgb(20, 30, 55);
+            --accent: rgba(20, 30, 55, 0.55);
+            --accent-strong: rgba(20, 30, 55, 0.72);
+            --accent-solid: rgba(20, 30, 55, 0.92);
             --fg: #eaeef8;
             --muted: rgba(234,238,248,0.65);
-            --glass: rgba(255,255,255,0.08);
+            /* Glass tint should also be based on the theme (avoid white-ish look) */
+            --glass: rgba(20, 30, 55, 0.60);
+            --glass-2: rgba(20, 30, 55, 0.72);
             --width-game: 1600px;
             --height-game: 900px;
-            --sidebar-w: 360px;
-            --bottombar-h: 100px;
+                /* Final canvas target (HD): 1920x1080
+                    Game area: 1600x900
+                    Right sidebar: 320px  (1600 + 320 = 1920)
+                    Bottom bar: 180px     (900 + 180 = 1080)
+                */
+                --sidebar-w: 320px;
+                --bottombar-h: 180px;
 
             /* Typography (tuned for OBS readability) */
-            --font-chat-header: 16px;
-            --font-chat-msg: 15px;
-            --font-announce: 20px;
-            --font-xid: 18px;
+            --font-chat-header: 18px;
+            --font-chat-msg: 16px;
+            --font-announce: 24px;
+            --font-xid: 20px;
 
             /* Logo: zoom inside the frame (keeps aspect ratio & prevents overflow) */
             --logo-zoom: 1.18;
@@ -43,7 +52,7 @@
         }
 
         /* Preview mode (browser-friendly). Toggle with ?preview=1 */
-    body.preview{background: radial-gradient(1200px 700px at 20% 20%, rgba(79,70,229,0.16), rgba(0,0,0,0.0)), rgba(10,12,18,0.90);}
+    body.preview{background: radial-gradient(1200px 700px at 20% 20%, rgba(20,30,55,0.24), rgba(0,0,0,0.0)), rgba(10,12,18,0.92);}
         body.preview .stage{margin: 18px;}
 
         /* Left: reserved area (transparent) exactly 1600x900 for the game capture to sit under/next to */
@@ -66,8 +75,8 @@
             top:12px;
             font-size:12px;
             color: rgba(234,238,248,0.75);
-            background: rgba(10,12,18,0.55);
-            border: 1px solid rgba(255,255,255,0.06);
+            background: rgba(20, 30, 55, 0.72);
+            border: 1px solid rgba(234,238,248,0.08);
             padding: 6px 8px;
             border-radius: 10px;
             display:none;
@@ -91,9 +100,9 @@
         .chat-card{
             width:100%;
             height:100%;
-            background: linear-gradient(180deg, rgba(255,255,255,0.06), rgba(255,255,255,0.03));
+            background: linear-gradient(180deg, rgba(20, 30, 55, 0.82), rgba(20, 30, 55, 0.62));
             border-radius:14px;
-            border:1px solid rgba(255,255,255,0.07);
+            border:1px solid rgba(234,238,248,0.08);
             padding:12px;
             box-sizing:border-box;
             display:flex;
@@ -123,6 +132,10 @@
             box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
         }
 
+        .msg:nth-child(2n){
+            background: var(--glass-2);
+        }
+
         /* Bottom bar across full stage */
         .bottom-bar{
             position:absolute;
@@ -131,8 +144,8 @@
             height:var(--bottombar-h);
             display:flex;align-items:center;gap:18px;
             padding:12px 20px; box-sizing:border-box;
-            /* Make the bottom bar more present (darker + subtle depth) */
-            background: linear-gradient(90deg, var(--accent-solid), rgba(79,70,229,0.38) 55%, rgba(0,0,0,0.10));
+            /* Flat solid color (no gradient) */
+            background: var(--accent-solid);
             border-top-left-radius:18px;
             border-top-right-radius:0;
             border-top:1px solid rgba(255,255,255,0.10);
@@ -145,8 +158,9 @@
             border-radius:12px;
             overflow:hidden;
             display:flex;align-items:center;justify-content:center;
-            background:rgba(255,255,255,0.03);
-            border:1px solid rgba(255,255,255,0.06);
+            /* No frame: show only the image */
+            background: transparent;
+            border: none;
             padding:6px;
             box-sizing:border-box;
         }
@@ -179,18 +193,11 @@
             const preview = (qp('preview','0') === '1');
             if(preview) document.body.classList.add('preview');
 
-            // OBS 1080p mode: fit the whole overlay into 1920x1080 without scaling in OBS
-            // Layout: 1600x900 game + 320px sidebar = 1920 width, and 180px bottom bar = 1080 height
+            // OBS 1080p mode (backward compatible):
+            // The default layout is already designed for 1920x1080.
             const mode = qp('mode','');
             if(mode === '1080'){
-                document.documentElement.style.setProperty('--sidebar-w','320px');
-                document.documentElement.style.setProperty('--bottombar-h','180px');
-
-                // bump typography slightly for 1080p view
-                document.documentElement.style.setProperty('--font-chat-header','18px');
-                document.documentElement.style.setProperty('--font-chat-msg','16px');
-                document.documentElement.style.setProperty('--font-announce','24px');
-                document.documentElement.style.setProperty('--font-xid','20px');
+                // no-op (kept for old URLs)
             }
 
             // Optional: control logo zoom from URL (e.g. ?logoZoom=1.25)
