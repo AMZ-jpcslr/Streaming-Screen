@@ -53,6 +53,7 @@ const sseClients = new Set();
 let pollTimer = null;
 let lastSeenMessageId = null;
 let activeLiveChatId = null;
+let nextPageToken = null;
 let lastStatus = { kind: 'status', level: 'info', message: 'idle', ts: new Date().toISOString() };
 let lastPollAt = null;
 
@@ -157,28 +158,21 @@ async function pollLiveChat(oauthTokens) {
   const resp = await youtube.liveChatMessages.list({
     liveChatId: activeLiveChatId,
     part: ['snippet', 'authorDetails'],
-    maxResults: 200
+    maxResults: 200,
+    pageToken: nextPageToken || undefined
   });
 
   const items = resp.data.items || [];
 
-  // Send messages in chronological order.
-  // API returns newest first; reverse for chat display.
-  const toProcess = items.slice();
-  toProcess.reverse();
+  // For incremental polling, the API returns a token to get the next page of new messages.
+  // Using this is more reliable than manual lastSeen scanning.
+  nextPageToken = resp.data.nextPageToken || nextPageToken;
 
-  let hitLastSeen = false;
+  // Display messages in chronological order. The list can be newest-first.
+  const toProcess = items.slice().reverse();
 
   for (const item of toProcess) {
     const id = item.id;
-    if (lastSeenMessageId && id === lastSeenMessageId) {
-      hitLastSeen = true;
-      continue;
-    }
-    if (lastSeenMessageId && !hitLastSeen) {
-      // Skip older messages until we reach lastSeen
-      continue;
-    }
 
     const name = item?.authorDetails?.displayName || 'Someone';
     const text = String(item?.snippet?.displayMessage || '').trim();
@@ -293,6 +287,7 @@ app.get('/api/auth/callback', async (req, res) => {
   // Reset polling markers
   lastSeenMessageId = null;
   activeLiveChatId = null;
+  nextPageToken = null;
   ensurePolling(req.session);
   res.redirect('/');
 });
@@ -301,6 +296,7 @@ app.get('/api/auth/logout', (req, res) => {
   req.session = null;
   lastSeenMessageId = null;
   activeLiveChatId = null;
+  nextPageToken = null;
   res.redirect('/');
 });
 

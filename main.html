@@ -295,6 +295,9 @@
             const chatContainer = document.getElementById('chat-body');
             if(!chatContainer) return;
 
+            // Detect whether user is already near bottom BEFORE appending
+            const nearBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 40;
+
             const d = document.createElement('div');
             d.className = 'msg';
             d.textContent = `${sanitizeText(name)}: ${sanitizeText(text)}`;
@@ -306,8 +309,7 @@
                 chatContainer.removeChild(chatContainer.firstElementChild);
             }
 
-            // auto-scroll if user is at bottom (or close)
-            const nearBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 40;
+            // auto-scroll if user was at bottom (or close)
             if(nearBottom){
                 chatContainer.scrollTop = chatContainer.scrollHeight;
             }
