@@ -363,6 +363,8 @@
 
                 const rows = [
                     ['OAuth設定', `${authBadge} ${tokenBadge}`],
+                    ['認可チャンネル', yt.authedChannel ? `${sanitizeText(yt.authedChannel.title || '(no title)')} (${sanitizeText(yt.authedChannel.id || '?')})` : '-'],
+                    ['配信中ライブ', yt.activeBroadcast ? `${sanitizeText(yt.activeBroadcast.title || '(no title)')} (${sanitizeText(yt.activeBroadcast.id || '?')})` : '-'],
                     ['ライブ検出', `${chatBadge}`],
                     ['liveChatId', yt.activeLiveChatId || '-'],
                     ['SSE接続数', String(yt.sseClients ?? '-')],

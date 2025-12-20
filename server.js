@@ -56,6 +56,8 @@ let activeLiveChatId = null;
 let nextPageToken = null;
 let lastStatus = { kind: 'status', level: 'info', message: 'idle', ts: new Date().toISOString() };
 let lastPollAt = null;
+let authedChannel = null; // { id, title }
+let activeBroadcast = null; // { id, title }
 
 function broadcastEvent(evt) {
   // Keep last status for debugging UIs
@@ -82,7 +84,22 @@ async function getLiveChatId(youtube) {
   });
   const items = list.data.items || [];
   const active = items[0];
+  activeBroadcast = active ? {
+    id: active.id,
+    title: active?.snippet?.title || ''
+  } : null;
   return active?.snippet?.liveChatId || null;
+}
+
+async function getAuthedChannel(youtube) {
+  const resp = await youtube.channels.list({
+    part: ['snippet'],
+    mine: true,
+    maxResults: 5
+  });
+  const items = resp.data.items || [];
+  const ch = items[0];
+  return ch ? { id: ch.id, title: ch?.snippet?.title || '' } : null;
 }
 
 function classifySpecialEvent(item) {
@@ -142,6 +159,18 @@ async function pollLiveChat(oauthTokens) {
   const auth = createOAuthClient();
   auth.setCredentials(oauthTokens);
   const youtube = google.youtube({ version: 'v3', auth });
+
+  // Cache which channel is actually authorized (helps debugging)
+  if (!authedChannel) {
+    try {
+      authedChannel = await getAuthedChannel(youtube);
+      if (authedChannel?.title) {
+        broadcastEvent({ kind: 'status', level: 'info', message: `認可チャンネル: ${authedChannel.title}` });
+      }
+    } catch (e) {
+      broadcastEvent({ kind: 'status', level: 'warn', message: `channels.list failed: ${e?.message || e}` });
+    }
+  }
 
   // Ensure chat id
   if (!activeLiveChatId) {
@@ -288,6 +317,8 @@ app.get('/api/auth/callback', async (req, res) => {
   lastSeenMessageId = null;
   activeLiveChatId = null;
   nextPageToken = null;
+  authedChannel = null;
+  activeBroadcast = null;
   ensurePolling(req.session);
   res.redirect('/');
 });
@@ -297,6 +328,8 @@ app.get('/api/auth/logout', (req, res) => {
   lastSeenMessageId = null;
   activeLiveChatId = null;
   nextPageToken = null;
+  authedChannel = null;
+  activeBroadcast = null;
   res.redirect('/');
 });
 
@@ -309,6 +342,8 @@ app.get('/api/yt/state', (req, res) => {
     pollMs: Math.max(1200, YT_POLL_MS),
     polling: Boolean(pollTimer),
     sseClients: sseClients.size,
+    authedChannel,
+    activeBroadcast,
     activeLiveChatId: activeLiveChatId || null,
     lastSeenMessageId: lastSeenMessageId || null,
     lastPollAt,
