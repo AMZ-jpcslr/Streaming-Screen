@@ -1,4 +1,5 @@
 const path = require('path');
+const fs = require('fs');
 const express = require('express');
 const cookieSession = require('cookie-session');
 const { google } = require('googleapis');
@@ -9,19 +10,137 @@ const app = express();
 const port = Number(process.env.PORT || 3000);
 
 const rootDir = __dirname;
+const settingsPath = path.join(rootDir, 'settings.json');
+
+function readSettings() {
+  try {
+    if (!fs.existsSync(settingsPath)) return {};
+    const raw = fs.readFileSync(settingsPath, 'utf8');
+    const json = JSON.parse(raw);
+    return (json && typeof json === 'object') ? json : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+function writeSettings(obj) {
+  const safe = (obj && typeof obj === 'object') ? obj : {};
+  fs.writeFileSync(settingsPath, JSON.stringify(safe, null, 2), 'utf8');
+}
+
+// ===== Control (admin) protection =====
+// Simple option: HTTP Basic Auth.
+// Set CONTROL_USER / CONTROL_PASS in Railway Variables.
+// If both are empty, control endpoints are unprotected.
+const CONTROL_USER = process.env.CONTROL_USER || '';
+const CONTROL_PASS = process.env.CONTROL_PASS || '';
+
+function hasControlAuthConfigured() {
+  return Boolean(CONTROL_USER || CONTROL_PASS);
+}
+
+function unauthorizedBasic(res) {
+  res.setHeader('WWW-Authenticate', 'Basic realm="Streaming-Screen Control"');
+  res.status(401).send('Unauthorized');
+}
+
+function checkBasicAuth(req) {
+  if (!hasControlAuthConfigured()) return true;
+  const hdr = String(req.get('authorization') || '');
+  const m = /^Basic\s+(.+)$/i.exec(hdr);
+  if (!m) return false;
+  try {
+    const decoded = Buffer.from(m[1], 'base64').toString('utf8');
+    const idx = decoded.indexOf(':');
+    const user = idx >= 0 ? decoded.slice(0, idx) : decoded;
+    const pass = idx >= 0 ? decoded.slice(idx + 1) : '';
+    return user === CONTROL_USER && pass === CONTROL_PASS;
+  } catch (_) {
+    return false;
+  }
+}
+
+function requireControl(req, res, next) {
+  if (checkBasicAuth(req)) return next();
+  return unauthorizedBasic(res);
+}
+
+// ===== Self test (no HTTP) =====
+// Some environments (like sandboxed VS Code terminals) may not allow
+// loopback connections for smoke tests. Provide a CLI self-test for
+// Basic Auth parsing/verification.
+//
+// Usage:
+//   CONTROL_USER=u CONTROL_PASS=p node server.js --selftest
+//
+// Exit code:
+//   0 = pass, 1 = fail
+function basicAuthMatchesHeader(authorizationHeader) {
+  if (!hasControlAuthConfigured()) return true;
+  const hdr = String(authorizationHeader || '');
+  const m = /^Basic\s+(.+)$/i.exec(hdr);
+  if (!m) return false;
+  try {
+    const decoded = Buffer.from(m[1], 'base64').toString('utf8');
+    const idx = decoded.indexOf(':');
+    const user = idx >= 0 ? decoded.slice(0, idx) : decoded;
+    const pass = idx >= 0 ? decoded.slice(idx + 1) : '';
+    return user === CONTROL_USER && pass === CONTROL_PASS;
+  } catch (_) {
+    return false;
+  }
+}
+
+function runSelfTestAndExit() {
+  const user = CONTROL_USER;
+  const pass = CONTROL_PASS;
+
+  if (!hasControlAuthConfigured()) {
+    // eslint-disable-next-line no-console
+    console.log('[selftest] CONTROL_USER / CONTROL_PASS are not set -> control endpoints are unprotected (PASS).');
+    process.exit(0);
+  }
+
+  const okHeader = `Basic ${Buffer.from(`${user}:${pass}`, 'utf8').toString('base64')}`;
+  const badHeader = `Basic ${Buffer.from(`${user}:${pass}_wrong`, 'utf8').toString('base64')}`;
+
+  const ok = basicAuthMatchesHeader(okHeader) === true;
+  const ng = basicAuthMatchesHeader(badHeader) === false;
+  const none = basicAuthMatchesHeader('') === false;
+
+  const passAll = ok && ng && none;
+
+  // eslint-disable-next-line no-console
+  console.log(`[selftest] okHeader: ${ok ? 'PASS' : 'FAIL'}`);
+  // eslint-disable-next-line no-console
+  console.log(`[selftest] badHeader: ${ng ? 'PASS' : 'FAIL'}`);
+  // eslint-disable-next-line no-console
+  console.log(`[selftest] missingHeader: ${none ? 'PASS' : 'FAIL'}`);
+
+  process.exit(passAll ? 0 : 1);
+}
+
+if (process.argv.includes('--selftest')) {
+  runSelfTestAndExit();
+}
 
 // ===== YouTube API / OAuth config =====
 // Required env vars:
 //   YT_CLIENT_ID, YT_CLIENT_SECRET, YT_REDIRECT_URL
 // Optional:
 //   YT_CHANNEL_ID (to pick a channel if the account has multiple)
-//   YT_POLL_MS (default 2500)
+//   YT_POLL_MS (default 10000)
 //   SESSION_SECRET (cookie encryption secret)
 const YT_CLIENT_ID = process.env.YT_CLIENT_ID || '';
 const YT_CLIENT_SECRET = process.env.YT_CLIENT_SECRET || '';
 const YT_REDIRECT_URL = process.env.YT_REDIRECT_URL || '';
 const YT_CHANNEL_ID = process.env.YT_CHANNEL_ID || '';
-const YT_POLL_MS = Number(process.env.YT_POLL_MS || 2500);
+const YT_POLL_MS = Number(process.env.YT_POLL_MS || 10000);
+// Manual switch: if false, do not poll YouTube at all (prevents quota burn)
+// Can be toggled at runtime via /api/yt/enabled
+let ytEnabled = String(process.env.YT_ENABLED || '0') === '1';
+const YT_CHANNEL_TTL_MS = Number(process.env.YT_CHANNEL_TTL_MS || 6 * 60 * 60 * 1000); // 6h
+const YT_BACKOFF_MAX_MS = Number(process.env.YT_BACKOFF_MAX_MS || 30 * 60 * 1000); // 30m
 
 const oauthConfigured = Boolean(YT_CLIENT_ID && YT_CLIENT_SECRET && YT_REDIRECT_URL);
 
@@ -58,6 +177,59 @@ let lastStatus = { kind: 'status', level: 'info', message: 'idle', ts: new Date(
 let lastPollAt = null;
 let authedChannel = null; // { id, title }
 let activeBroadcast = null; // { id, title }
+let authedChannelAt = null;
+
+let pollTimeout = null;
+let nextPollAt = null;
+let lastPollMsEffective = null;
+let backoffUntil = null;
+let backoffMs = 0;
+
+function nowIso() { return new Date().toISOString(); }
+
+function isQuotaExceededError(e) {
+  const msg = String(e?.message || '').toLowerCase();
+  const reason = String(e?.errors?.[0]?.reason || e?.response?.data?.error?.errors?.[0]?.reason || '').toLowerCase();
+  return msg.includes('exceeded your quota') || reason === 'quotaexceeded' || msg.includes('quotaexceeded');
+}
+
+function isChatNoLongerLiveError(e) {
+  const msg = String(e?.message || '').toLowerCase();
+  const reason = String(e?.errors?.[0]?.reason || e?.response?.data?.error?.errors?.[0]?.reason || '').toLowerCase();
+  return msg.includes('live chat is no longer live') || reason === 'livechatnotfound' || reason === 'livechatclosed';
+}
+
+function resetLiveState(reason) {
+  lastSeenMessageId = null;
+  nextPageToken = null;
+  activeLiveChatId = null;
+  activeBroadcast = null;
+  if (reason) {
+    broadcastEvent({ kind: 'status', level: 'warn', message: reason });
+  }
+}
+
+function scheduleNextPoll(session, ms, reason) {
+  if (pollTimeout) clearTimeout(pollTimeout);
+  const delay = Math.max(1200, Number(ms) || 1200);
+  lastPollMsEffective = delay;
+  nextPollAt = new Date(Date.now() + delay).toISOString();
+  pollTimeout = setTimeout(() => pollLoop(session), delay);
+  if (reason) {
+    broadcastEvent({ kind: 'status', level: 'info', message: `次回ポーリング: ${Math.round(delay)}ms後（${reason}）` });
+  }
+}
+
+function stopPolling(reason) {
+  if (pollTimeout) {
+    clearTimeout(pollTimeout);
+    pollTimeout = null;
+  }
+  nextPollAt = null;
+  if (reason) {
+    broadcastEvent({ kind: 'status', level: 'warn', message: reason });
+  }
+}
 
 function broadcastEvent(evt) {
   // Keep last status for debugging UIs
@@ -154,16 +326,18 @@ async function pollLiveChat(oauthTokens) {
   if (!oauthConfigured) return;
   if (!oauthTokens) return;
 
-  lastPollAt = new Date().toISOString();
+  lastPollAt = nowIso();
 
   const auth = createOAuthClient();
   auth.setCredentials(oauthTokens);
   const youtube = google.youtube({ version: 'v3', auth });
 
   // Cache which channel is actually authorized (helps debugging)
-  if (!authedChannel) {
+  const shouldRefreshChannel = !authedChannelAt || (Date.now() - new Date(authedChannelAt).getTime()) > YT_CHANNEL_TTL_MS;
+  if (!authedChannel || shouldRefreshChannel) {
     try {
       authedChannel = await getAuthedChannel(youtube);
+      authedChannelAt = nowIso();
       if (authedChannel?.title) {
         broadcastEvent({ kind: 'status', level: 'info', message: `認可チャンネル: ${authedChannel.title}` });
       }
@@ -253,18 +427,69 @@ async function pollLiveChat(oauthTokens) {
     lastSeenMessageId = items[0].id;
   }
 
-  broadcastEvent({ kind: 'status', level: 'info', message: `取得完了（items=${items.length}）` });
+  const pollMsFromApi = Number(resp?.data?.pollingIntervalMillis || 0);
+  broadcastEvent({ kind: 'status', level: 'info', message: `取得完了（items=${items.length} / next=${nextPageToken ? 'yes' : 'no'} / apiPoll=${pollMsFromApi || '-'}ms）` });
+
+  return {
+    pollMsFromApi: pollMsFromApi || null
+  };
+}
+
+async function pollLoop(session) {
+  if (!ytEnabled) {
+    stopPolling('YouTubeコメント取得: OFF');
+    return;
+  }
+  // If quota exceeded backoff is active, stop until backoff expires.
+  if (backoffUntil && Date.now() < new Date(backoffUntil).getTime()) {
+    scheduleNextPoll(session, new Date(backoffUntil).getTime() - Date.now(), 'quota backoff');
+    return;
+  }
+
+  try {
+    const r = await pollLiveChat(session?.oauthTokens);
+    // Success: reset backoff
+    backoffUntil = null;
+    backoffMs = 0;
+
+    const apiMs = Number(r?.pollMsFromApi || 0);
+    // Prefer YouTube's suggested interval; fall back to env.
+    const baseMs = Math.max(1200, YT_POLL_MS);
+    const nextMs = apiMs > 0 ? Math.max(baseMs, apiMs) : baseMs;
+    scheduleNextPoll(session, nextMs, apiMs > 0 ? 'api interval' : 'env interval');
+  } catch (e) {
+    const quota = isQuotaExceededError(e);
+    const chatClosed = isChatNoLongerLiveError(e);
+    const msg = `poll error: ${e?.message || e}`;
+    broadcastEvent({ kind: 'status', level: (quota || chatClosed) ? 'error' : 'warn', message: msg });
+
+    if (chatClosed) {
+      // The broadcast ended or the chatId became invalid.
+      // Reset state so next loop will re-detect an active broadcast.
+      resetLiveState('ライブチャットが終了しました（再検出します）');
+      // Slow down a bit to avoid hammering.
+      scheduleNextPoll(session, Math.max(15_000, Math.max(1200, YT_POLL_MS)), 'chat ended');
+      return;
+    }
+
+    if (quota) {
+      // Exponential backoff up to max.
+      backoffMs = backoffMs ? Math.min(backoffMs * 2, YT_BACKOFF_MAX_MS) : Math.min(60_000, YT_BACKOFF_MAX_MS);
+      backoffUntil = new Date(Date.now() + backoffMs).toISOString();
+      broadcastEvent({ kind: 'status', level: 'warn', message: `クォータ超過のため一時停止します（${Math.round(backoffMs / 1000)}秒）` });
+      scheduleNextPoll(session, backoffMs, 'quota backoff');
+      return;
+    }
+
+    // Non-quota: wait a bit and retry
+    scheduleNextPoll(session, Math.max(5000, Math.max(1200, YT_POLL_MS)), 'retry');
+  }
 }
 
 function ensurePolling(session) {
-  if (pollTimer) return;
-  pollTimer = setInterval(async () => {
-    try {
-      await pollLiveChat(session?.oauthTokens);
-    } catch (e) {
-      broadcastEvent({ kind: 'status', level: 'error', message: `poll error: ${e?.message || e}` });
-    }
-  }, Math.max(1200, YT_POLL_MS));
+  if (!ytEnabled) return;
+  if (pollTimeout) return;
+  scheduleNextPoll(session, Math.max(1200, YT_POLL_MS), 'start');
 }
 
 // Static assets (logo, bottom bar image, etc.)
@@ -319,6 +544,10 @@ app.get('/api/auth/callback', async (req, res) => {
   nextPageToken = null;
   authedChannel = null;
   activeBroadcast = null;
+  authedChannelAt = null;
+  backoffUntil = null;
+  backoffMs = 0;
+  // Start polling only if enabled
   ensurePolling(req.session);
   res.redirect('/');
 });
@@ -330,7 +559,58 @@ app.get('/api/auth/logout', (req, res) => {
   nextPageToken = null;
   authedChannel = null;
   activeBroadcast = null;
+  authedChannelAt = null;
+  backoffUntil = null;
+  backoffMs = 0;
+  stopPolling('ログアウトしました（polling停止）');
   res.redirect('/');
+});
+
+// ---- Manual YouTube polling switch ----
+app.get('/api/yt/enabled', (_req, res) => {
+  res.json({ ytEnabled });
+});
+
+app.post('/api/yt/enabled', requireControl, express.json(), (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  ytEnabled = enabled;
+
+  if (!ytEnabled) {
+    backoffUntil = null;
+    backoffMs = 0;
+    resetLiveState('YouTubeコメント取得をOFFにしました');
+    stopPolling('YouTubeコメント取得: OFF');
+  } else {
+    backoffUntil = null;
+    backoffMs = 0;
+    resetLiveState('YouTubeコメント取得をONにしました（再検出します）');
+  }
+
+  res.json({ ytEnabled });
+});
+
+// ---- Overlay settings (saved) ----
+// GET is public so overlay clients can read the saved defaults.
+app.get('/api/settings', (_req, res) => {
+  res.json(readSettings());
+});
+
+// POST requires control token.
+app.post('/api/settings', requireControl, express.json({ limit: '64kb' }), (req, res) => {
+  const b = req.body || {};
+
+  // Keep it intentionally small/safe: only allow expected keys.
+  const next = {
+    announce: typeof b.announce === 'string' ? b.announce : '',
+    xid: typeof b.xid === 'string' ? b.xid : '',
+    logo: typeof b.logo === 'string' ? b.logo : '',
+    logoZoom: typeof b.logoZoom === 'number' ? b.logoZoom : (typeof b.logoZoom === 'string' ? Number(b.logoZoom) : undefined),
+    chat: typeof b.chat === 'string' ? b.chat : ''
+  };
+  if (!Number.isFinite(next.logoZoom)) delete next.logoZoom;
+
+  writeSettings(next);
+  res.json({ ok: true, settings: next });
 });
 
 // ---- Debug state endpoint (for preview UI) ----
@@ -339,10 +619,15 @@ app.get('/api/yt/state', (req, res) => {
     oauthConfigured,
     authed: Boolean(req.session?.oauthTokens),
     hasRefreshToken: Boolean(req.session?.oauthTokens?.refresh_token),
+    ytEnabled,
     pollMs: Math.max(1200, YT_POLL_MS),
-    polling: Boolean(pollTimer),
+    pollMsEffective: lastPollMsEffective,
+    polling: Boolean(pollTimeout),
+    nextPollAt,
+    backoffUntil,
     sseClients: sseClients.size,
     authedChannel,
+    authedChannelAt,
     activeBroadcast,
     activeLiveChatId: activeLiveChatId || null,
     lastSeenMessageId: lastSeenMessageId || null,
@@ -381,7 +666,18 @@ app.get('/main.html', (_req, res) => {
   res.sendFile(path.join(rootDir, 'main.html'));
 });
 
-app.listen(port, '0.0.0.0', () => {
+// Control page
+app.get('/control', requireControl, (_req, res) => {
+  res.sendFile(path.join(rootDir, 'control.html'));
+});
+
+app.get('/control.html', requireControl, (_req, res) => {
+  res.sendFile(path.join(rootDir, 'control.html'));
+});
+
+const host = process.env.HOST || '0.0.0.0';
+
+app.listen(port, host, () => {
   // eslint-disable-next-line no-console
-  console.log(`Streaming-Screen listening on port ${port}`);
+  console.log(`Streaming-Screen listening on http://${host}:${port}`);
 });

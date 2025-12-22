@@ -361,20 +361,62 @@
                 const tokenBadge = authed ? badge('ok','authed') : badge('warn','not authed');
                 const chatBadge = hasChat ? badge('ok','live OK') : badge('warn','no live');
 
+                                const ytEnabled = (yt && typeof yt.ytEnabled === 'boolean') ? yt.ytEnabled : false;
+                                const enabledBadge = ytEnabled ? badge('ok','YT ON') : badge('warn','YT OFF');
+                                const toggleHtml = `
+                                    <button id="yt-toggle" style="cursor:pointer; padding:6px 10px; border-radius:10px; border:1px solid rgba(234,238,248,0.18); background: rgba(20,30,55,0.55); color: rgba(234,238,248,0.92); font-weight:800;">
+                                        ${ytEnabled ? 'コメント取得をOFF' : 'コメント取得をON'}
+                                    </button>
+                                    <span style="margin-left:8px; color: rgba(234,238,248,0.72);">（OFFだとAPIを叩かずクォータ消費しません）</span>
+                                `;
+
                 const rows = [
                     ['OAuth設定', `${authBadge} ${tokenBadge}`],
+                                        ['YouTube取得', `${enabledBadge} ${toggleHtml}`],
                     ['認可チャンネル', yt.authedChannel ? `${sanitizeText(yt.authedChannel.title || '(no title)')} (${sanitizeText(yt.authedChannel.id || '?')})` : '-'],
                     ['配信中ライブ', yt.activeBroadcast ? `${sanitizeText(yt.activeBroadcast.title || '(no title)')} (${sanitizeText(yt.activeBroadcast.id || '?')})` : '-'],
                     ['ライブ検出', `${chatBadge}`],
                     ['liveChatId', yt.activeLiveChatId || '-'],
                     ['SSE接続数', String(yt.sseClients ?? '-')],
-                    ['Polling', `${yt.polling ? 'ON' : 'OFF'} (${yt.pollMs ?? '-'}ms)`],
+                    ['Polling', `${yt.polling ? 'ON' : 'OFF'} (env=${yt.pollMs ?? '-'}ms / effective=${yt.pollMsEffective ?? '-' }ms)`],
+                    ['nextPollAt', yt.nextPollAt || '-'],
+                    ['backoffUntil', yt.backoffUntil || '-'],
                     ['lastPollAt', yt.lastPollAt || '-'],
                     ['lastSeenMessageId', yt.lastSeenMessageId || '-'],
                     ['status', `${level.toUpperCase()}: ${sanitizeText(statusText)}`],
+                                        [
+                                            'hint',
+                                            (String(statusText).toLowerCase().includes('live chat is no longer live')
+                                                ? 'ライブが終了した/チャットが閉じた可能性があります。自動で再検出します。しばらく待っても直らない場合は配信中かを確認し、必要ならログアウト→再認可してください。'
+                                                : (String(statusText).toLowerCase().includes('exceeded your quota')
+                                                    ? 'YouTube Data API の日次クォータ超過です。backoffUntil まで待つか、コメント最優先なら ?chat=... iframe に切替えるのが確実です。'
+                                                    : '-'))
+                                        ],
                 ];
 
                 el.innerHTML = rows.map(([k,v]) => `<div class="k">${k}</div><div class="v">${v}</div>`).join('');
+
+                // Bind toggle button (re-created each poll)
+                const btn = document.getElementById('yt-toggle');
+                if(btn){
+                    btn.onclick = async () => {
+                        try{
+                            btn.disabled = true;
+                            const resp = await fetch('/api/yt/enabled', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ enabled: !ytEnabled })
+                            });
+                            if(!resp.ok) throw new Error('toggle failed');
+                            // Refresh immediately
+                            pollStatus();
+                        } catch(e){
+                            // ignore
+                        } finally {
+                            btn.disabled = false;
+                        }
+                    };
+                }
             } catch(_){
                 // ignore
             }
@@ -443,48 +485,67 @@
             }
 
             // Set text fields
-            const chan = qp('channel','Channel Name');
-            const announce = qp('announce','はの【ゲーム実況】チャンネルにようこそ！');
-            const xid = qp('xid','@hano_game');
-            const logo = qp('logo','');
-            const chatUrl = qp('chat','');
+            async function applyOverlaySettings(){
+                // Read saved defaults from server (optional). URL params have priority.
+                let saved = {};
+                try{
+                    const r = await fetch('/api/settings', { cache: 'no-store' });
+                    if(r.ok) saved = await r.json();
+                } catch(_){
+                    // ignore
+                }
 
-            document.getElementById('announce').textContent = announce;
-            document.getElementById('xid').textContent = xid;
+                const chan = qp('channel','Channel Name');
 
-            const logoImg = document.getElementById('logo-img');
-            if(logo){
-                logoImg.src = decodeURIComponent(logo);
-                logoImg.alt = chan + ' logo';
-            } else {
-                // Default logo from local assets
-                logoImg.src = './assets/logo.jpg';
-                logoImg.alt = chan + ' logo';
-            }
+                const announce = qp('announce', (typeof saved.announce === 'string' && saved.announce) ? saved.announce : 'はの【ゲーム実況】チャンネルにようこそ！');
+                const xid = qp('xid', (typeof saved.xid === 'string' && saved.xid) ? saved.xid : '@hano_game');
+                const logo = qp('logo', (typeof saved.logo === 'string') ? saved.logo : '');
+                const chatUrl = qp('chat', (typeof saved.chat === 'string') ? saved.chat : '');
 
-            // Chat handling:
-            // - If ?chat is provided, use iframe (legacy/external chat embed)
-            // - Otherwise, this pane will be filled by YouTube API (SSE) after OAuth
-            const chatContainer = document.getElementById('chat-body');
-            if(chatUrl){
-                // Use provided chat URL (encoded allowed)
-                const iframe = document.createElement('iframe');
-                iframe.src = decodeURIComponent(chatUrl);
-                iframe.style.border='0'; iframe.style.width='100%'; iframe.style.height='100%'; iframe.style.borderRadius='8px';
-                iframe.allow = 'microphone; camera; autoplay';
-                chatContainer.innerHTML='';
-                chatContainer.appendChild(iframe);
-            } else {
-                // No chat URL provided: keep it empty.
-                // In preview mode, show a small hint so it's obvious nothing is broken.
-                chatContainer.innerHTML = '';
-                if(preview){
-                    const hint = document.createElement('div');
-                    hint.className = 'msg';
-                    hint.textContent = 'YouTube認可後、この枠にコメントが流れます（または ?chat=... でiframe表示）';
-                    chatContainer.appendChild(hint);
+                document.getElementById('announce').textContent = announce;
+                document.getElementById('xid').textContent = xid;
+
+                const savedZoom = (typeof saved.logoZoom !== 'undefined' && saved.logoZoom !== null) ? Number(saved.logoZoom) : NaN;
+                if(qp('logoZoom','') === '' && !Number.isNaN(savedZoom)){
+                    document.documentElement.style.setProperty('--logo-zoom', String(clamp(savedZoom, 1.0, 1.6)));
+                }
+
+                const logoImg = document.getElementById('logo-img');
+                if(logo){
+                    logoImg.src = decodeURIComponent(logo);
+                    logoImg.alt = chan + ' logo';
+                } else {
+                    // Default logo from local assets
+                    logoImg.src = './assets/logo.jpg';
+                    logoImg.alt = chan + ' logo';
+                }
+
+                // Chat handling:
+                // - If ?chat is provided, use iframe (legacy/external chat embed)
+                // - Otherwise, this pane will be filled by YouTube API (SSE) after OAuth
+                const chatContainer = document.getElementById('chat-body');
+                if(chatUrl){
+                    // Use provided chat URL (encoded allowed)
+                    const iframe = document.createElement('iframe');
+                    iframe.src = decodeURIComponent(chatUrl);
+                    iframe.style.border='0'; iframe.style.width='100%'; iframe.style.height='100%'; iframe.style.borderRadius='8px';
+                    iframe.allow = 'microphone; camera; autoplay';
+                    chatContainer.innerHTML='';
+                    chatContainer.appendChild(iframe);
+                } else {
+                    // No chat URL provided: keep it empty.
+                    // In preview mode, show a small hint so it's obvious nothing is broken.
+                    chatContainer.innerHTML = '';
+                    if(preview){
+                        const hint = document.createElement('div');
+                        hint.className = 'msg';
+                        hint.textContent = 'YouTube認可後、この枠にコメントが流れます（または ?chat=... でiframe表示）';
+                        chatContainer.appendChild(hint);
+                    }
                 }
             }
+
+            applyOverlaySettings();
         });
     </script>
 </head>

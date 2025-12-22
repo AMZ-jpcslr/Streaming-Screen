@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Streaming-Screen Control</title>
+  <style>
+    :root{
+      --bg: #0b0f1a;
+      --card: rgba(20,30,55,0.78);
+      --card2: rgba(20,30,55,0.62);
+      --fg: #eaeef8;
+      --muted: rgba(234,238,248,0.72);
+      --line: rgba(234,238,248,0.12);
+      --ok: rgba(0,214,143,0.35);
+      --warn: rgba(255,196,0,0.28);
+      --ng: rgba(255,92,92,0.26);
+    }
+    html,body{height:100%;margin:0;background:radial-gradient(1200px 700px at 20% 15%, rgba(20,30,55,0.30), rgba(0,0,0,0)), var(--bg);color:var(--fg);font-family:Segoe UI, Roboto, "Helvetica Neue", Arial, sans-serif;}
+    .wrap{max-width:980px;margin:0 auto;padding:22px 18px 40px;}
+    h1{margin:0 0 10px;font-size:22px;letter-spacing:0.2px;}
+    .sub{color:var(--muted);margin:0 0 18px;font-size:13px;line-height:1.4;}
+    .grid{display:grid;grid-template-columns: 1fr;gap:14px;}
+    @media(min-width:900px){.grid{grid-template-columns: 1fr 1fr;}}
+    .card{background:linear-gradient(180deg,var(--card),var(--card2));border:1px solid var(--line);border-radius:16px;box-shadow:0 18px 44px rgba(0,0,0,0.28);padding:14px 14px;}
+    .card h2{margin:0 0 10px;font-size:16px;}
+    .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin:8px 0;}
+    .label{min-width:140px;color:var(--muted);font-size:13px;}
+    .value{font-size:13px;word-break:break-all;}
+    .badge{display:inline-block;padding:3px 10px;border-radius:999px;font-weight:800;font-size:12px;border:1px solid var(--line)}
+    .badge.ok{background:var(--ok)}
+    .badge.warn{background:var(--warn)}
+    .badge.ng{background:var(--ng)}
+    button{cursor:pointer;padding:9px 12px;border-radius:12px;border:1px solid rgba(234,238,248,0.18);background:rgba(20,30,55,0.55);color:rgba(234,238,248,0.95);font-weight:800;}
+    button:disabled{opacity:0.6;cursor:not-allowed}
+    input,textarea{width:100%;box-sizing:border-box;padding:10px 12px;border-radius:12px;border:1px solid rgba(234,238,248,0.18);background:rgba(10,12,18,0.55);color:rgba(234,238,248,0.95);}
+    textarea{min-height:84px;resize:vertical}
+    .help{color:var(--muted);font-size:12px;line-height:1.35}
+    .full{grid-column:1/-1}
+    .actions{display:flex;gap:10px;flex-wrap:wrap}
+    .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>管理ページ（Control）</h1>
+    <p class="sub">
+      コメント取得のON/OFF（クォータ消費を防ぐ）と、配信画面URLの生成をここで行えます。<br>
+      このページ自体は認証なしなので、URLの共有には注意してください（今後パスワード保護も追加できます）。
+    </p>
+
+    <div class="grid">
+      <div class="card">
+        <h2>YouTubeコメント取得</h2>
+        <div class="row">
+          <span id="badge-enabled" class="badge warn">YT OFF</span>
+          <button id="btn-toggle">読み込み中…</button>
+        </div>
+        <div class="row">
+          <div class="label">OAuth設定</div>
+          <div class="value" id="st-env">-</div>
+        </div>
+        <div class="row">
+          <div class="label">認可状態</div>
+          <div class="value" id="st-authed">-</div>
+        </div>
+        <div class="row">
+          <div class="label">認可チャンネル</div>
+          <div class="value" id="st-channel">-</div>
+        </div>
+        <div class="row">
+          <div class="label">配信中ライブ</div>
+          <div class="value" id="st-live">-</div>
+        </div>
+        <div class="row">
+          <div class="label">backoffUntil</div>
+          <div class="value mono" id="st-backoff">-</div>
+        </div>
+        <div class="row">
+          <div class="label">status</div>
+          <div class="value" id="st-status">-</div>
+        </div>
+        <div class="actions">
+          <a href="/api/auth/start" target="_blank" rel="noopener"><button type="button">YouTubeにログイン（認可）</button></a>
+          <a href="/?preview=1" target="_blank" rel="noopener"><button type="button">配信画面をプレビュー</button></a>
+        </div>
+        <p class="help">
+          配信していない時は <b>OFF</b> にしておくと、サーバがYouTube Data APIを叩かないのでクォータを消費しません。<br>
+          配信開始前後だけ <b>ON</b> にすると安定します。
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>配信画面URLジェネレータ</h2>
+        <div class="row"><div class="label">お知らせ（announce）</div></div>
+        <textarea id="f-announce" placeholder="例：今日は〇〇やります！"></textarea>
+
+        <div class="row"><div class="label">X ID（xid）</div></div>
+        <input id="f-xid" placeholder="例：@hano_game" />
+
+        <div class="row"><div class="label">ロゴURL（logo）</div></div>
+        <input id="f-logo" placeholder="例：https://example.com/logo.png（空なら assets/logo.jpg）" />
+
+        <div class="row"><div class="label">ロゴ拡大（logoZoom）</div></div>
+        <input id="f-logoZoom" placeholder="例：1.18" />
+
+        <div class="row"><div class="label">チャットiframe（chat）</div></div>
+        <input id="f-chat" placeholder="例：https://www.youtube.com/live_chat?v=VIDEO_ID&embed_domain=..." />
+        <p class="help">
+          コメント最優先でクォータを使いたくない場合は、ここに chat URL を入れてください（iframe表示が優先されます）。
+        </p>
+
+        <div class="actions">
+          <button id="btn-save">この内容を保存</button>
+          <button id="btn-build">URLを生成</button>
+          <button id="btn-open" disabled>生成URLを開く</button>
+          <button id="btn-copy" disabled>コピー</button>
+        </div>
+
+        <p class="help">生成されたURL：</p>
+        <input id="out-url" class="mono" readonly />
+      </div>
+
+      <div class="card full">
+        <h2>このページで「できるカスタマイズ」について</h2>
+        <p class="help">
+          今回はまず「URL生成（＝既存のURLパラメータでのカスタマイズ）」を管理ページにまとめました。<br>
+          次の段階として、<b>管理ページで保存 → どの端末から開いても同じ設定</b> にすることもできます（サーバ側に設定JSONを保存）。
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    function enc(v){ return encodeURIComponent(String(v ?? '')); }
+    function badge(el, on){
+      el.textContent = on ? 'YT ON' : 'YT OFF';
+      el.classList.remove('ok','warn');
+      el.classList.add(on ? 'ok' : 'warn');
+    }
+
+    async function refresh(){
+      const [authRes, ytRes] = await Promise.all([
+        fetch('/api/auth/status', { cache: 'no-store' }),
+        fetch('/api/yt/state', { cache: 'no-store' })
+      ]);
+      const auth = authRes.ok ? await authRes.json() : {};
+      const yt = ytRes.ok ? await ytRes.json() : {};
+
+      const enabled = !!yt.ytEnabled;
+      badge(document.getElementById('badge-enabled'), enabled);
+
+      const btn = document.getElementById('btn-toggle');
+      btn.textContent = enabled ? 'コメント取得をOFFにする' : 'コメント取得をONにする';
+      btn.disabled = false;
+
+      document.getElementById('st-env').textContent = auth.oauthConfigured ? 'env OK' : 'env NG';
+      document.getElementById('st-authed').textContent = auth.authed ? 'authed' : 'not authed';
+      document.getElementById('st-channel').textContent = yt.authedChannel ? `${yt.authedChannel.title || '(no title)'} (${yt.authedChannel.id || '?'})` : '-';
+      document.getElementById('st-live').textContent = yt.activeBroadcast ? `${yt.activeBroadcast.title || '(no title)'} (${yt.activeBroadcast.id || '?'})` : '-';
+      document.getElementById('st-backoff').textContent = yt.backoffUntil || '-';
+      const st = yt.lastStatus ? `${(yt.lastStatus.level || 'info').toUpperCase()}: ${yt.lastStatus.message || ''}` : '-';
+      document.getElementById('st-status').textContent = st;
+    }
+
+    async function toggle(){
+      const yt = await (await fetch('/api/yt/state', { cache: 'no-store' })).json();
+      const enabled = !!yt.ytEnabled;
+      const btn = document.getElementById('btn-toggle');
+      btn.disabled = true;
+      await fetch('/api/yt/enabled', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled: !enabled })
+      });
+      await refresh();
+    }
+
+    function buildUrl(preview){
+      const base = `${location.origin}/`;
+      async function loadSavedSettings(){
+        try{
+          const r = await fetch('/api/settings', { cache: 'no-store' });
+          if(!r.ok) return;
+          const s = await r.json();
+          if(s && typeof s === 'object'){
+            if(typeof s.announce === 'string') document.getElementById('f-announce').value = s.announce;
+            if(typeof s.xid === 'string') document.getElementById('f-xid').value = s.xid;
+            if(typeof s.logo === 'string') document.getElementById('f-logo').value = s.logo;
+            if(typeof s.logoZoom !== 'undefined') document.getElementById('f-logoZoom').value = String(s.logoZoom);
+            if(typeof s.chat === 'string') document.getElementById('f-chat').value = s.chat;
+          }
+        } catch(_){
+          // ignore
+        }
+      }
+
+      async function saveSettings(){
+        const btn = document.getElementById('btn-save');
+        btn.disabled = true;
+        try{
+          const body = {
+            announce: document.getElementById('f-announce').value,
+            xid: document.getElementById('f-xid').value,
+            logo: document.getElementById('f-logo').value,
+            logoZoom: document.getElementById('f-logoZoom').value,
+            chat: document.getElementById('f-chat').value,
+          };
+          const r = await fetch('/api/settings', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body)
+          });
+          if(!r.ok) throw new Error('save failed');
+        } catch(_){
+          // ignore
+        } finally {
+          btn.disabled = false;
+        }
+      }
+
+      const announce = document.getElementById('f-announce').value.trim();
+      const xid = document.getElementById('f-xid').value.trim();
+      const logo = document.getElementById('f-logo').value.trim();
+      const logoZoom = document.getElementById('f-logoZoom').value.trim();
+      const chat = document.getElementById('f-chat').value.trim();
+
+      const params = [];
+      if(preview) params.push('preview=1');
+      if(announce) params.push(`announce=${enc(announce)}`);
+      if(xid) params.push(`xid=${enc(xid)}`);
+      if(logo) params.push(`logo=${enc(logo)}`);
+      if(logoZoom) params.push(`logoZoom=${enc(logoZoom)}`);
+      if(chat) params.push(`chat=${enc(chat)}`);
+
+      // Keep admin token on generated URLs only if user explicitly opened control with token.
+      // (Overlay itself does not require token.)
+
+      return base + (params.length ? `?${params.join('&')}` : '');
+    }
+
+    function setGenerated(url){
+      const out = document.getElementById('out-url');
+      out.value = url;
+      document.getElementById('btn-open').disabled = !url;
+      document.getElementById('btn-copy').disabled = !url;
+      document.getElementById('btn-save').addEventListener('click', ()=>{
+        saveSettings().catch(()=>{});
+      });
+
+    }
+      loadSavedSettings().catch(()=>{});
+
+    document.getElementById('btn-toggle').addEventListener('click', ()=>toggle().catch(()=>{}));
+
+    document.getElementById('btn-build').addEventListener('click', ()=>{
+      setGenerated(buildUrl(false));
+    });
+
+    document.getElementById('btn-open').addEventListener('click', ()=>{
+      const url = document.getElementById('out-url').value;
+      if(url) window.open(url, '_blank', 'noopener');
+    });
+
+    document.getElementById('btn-copy').addEventListener('click', async ()=>{
+      const url = document.getElementById('out-url').value;
+      if(!url) return;
+      try{
+        await navigator.clipboard.writeText(url);
+      } catch(_){
+        // Fallback: select
+        const out = document.getElementById('out-url');
+        out.focus();
+        out.select();
+        document.execCommand('copy');
+      }
+    });
+
+    refresh().catch(()=>{});
+    setInterval(()=>refresh().catch(()=>{}), 2500);
+  </script>
+</body>
+</html>
