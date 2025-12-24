@@ -90,7 +90,7 @@
             right:0;
             top:0;
             width:var(--sidebar-w);
-            height:var(--height-game);
+            height: calc(var(--height-game) + var(--bottombar-h));
             padding:18px;
             box-sizing:border-box;
             backdrop-filter: blur(6px);
@@ -111,6 +111,9 @@
             outline: 1px solid var(--accent-strong);
             box-shadow: 0 18px 44px rgba(0,0,0,0.22);
         }
+
+        /* Reference-like: sidebar is a continuous panel; header can be hidden */
+        .chat-header{display:none;}
 
         .chat-header{
             font-weight:600;
@@ -219,12 +222,14 @@
             left:0; bottom:0;
             width:100%;
             height:var(--bottombar-h);
-            display:flex;align-items:center;gap:18px;
-            padding:12px 20px; box-sizing:border-box;
-            /* Flat solid color (no gradient) */
+            display:flex;
+            align-items:center;
+            gap:12px;
+            padding:14px 18px;
+            box-sizing:border-box;
             background: var(--accent-solid);
             border-top-left-radius:18px;
-            border-top-right-radius:0;
+            border-top-right-radius:18px;
             border-top:1px solid rgba(255,255,255,0.10);
             box-shadow: 0 -14px 40px rgba(0,0,0,0.24);
         }
@@ -242,12 +247,102 @@
             box-sizing:border-box;
         }
 
+        .clock{
+            display:flex;
+            align-items:center;
+            gap:10px;
+            padding:10px 12px;
+            border-radius:12px;
+            background: rgba(0,0,0,0.10);
+            border: 1px solid rgba(255,255,255,0.10);
+            color: rgba(234,238,248,0.92);
+            font-weight:800;
+            font-size: 22px;
+            letter-spacing: 0.4px;
+            line-height: 1;
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .chip{
+            display:flex;
+            align-items:center;
+            justify-content:center;
+            padding:10px 12px;
+            border-radius:12px;
+            background: rgba(0,0,0,0.10);
+            border: 1px solid rgba(255,255,255,0.10);
+            color: rgba(234,238,248,0.92);
+            font-weight:800;
+            font-size: 18px;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+            user-select: none;
+        }
+
+        .chip.secondary{
+            background: rgba(255,255,255,0.08);
+            border-color: rgba(255,255,255,0.12);
+            color: rgba(234,238,248,0.88);
+        }
+
+        .xid-typing{min-width: 180px; justify-content:flex-start;}
+        .xid-typing .caret{width:10px; opacity:0.8; animation: caretBlink 900ms step-end infinite;}
+        @keyframes caretBlink{50%{opacity:0;}}
+
+        .title-box{
+            flex: 0 1 45%;
+            height: 52px;
+            padding:10px 14px;
+            border-radius:12px;
+            background: rgba(255,255,255,0.94);
+            border: 1px solid rgba(255,255,255,0.18);
+            color: rgba(20,30,55,0.92);
+            display:flex;
+            align-items:center;
+            gap:10px;
+            min-width: 360px;
+            max-width: 45%;
+            box-shadow: inset 0 0 0 1px rgba(20,30,55,0.08);
+        }
+
+        .title-box .pill{
+            font-weight:900;
+            font-size: 14px;
+            letter-spacing: 0.3px;
+            padding:6px 10px;
+            border-radius:999px;
+            background: rgba(20,30,55,0.10);
+            color: rgba(20,30,55,0.86);
+            white-space: nowrap;
+        }
+
+        .title-box .text{
+            font-weight:900;
+            font-size: 20px;
+            letter-spacing: 0.2px;
+            white-space: nowrap;
+            overflow:hidden;
+            text-overflow: ellipsis;
+        }
+
+        .clock .label{
+            font-weight:700;
+            font-size: 14px;
+            letter-spacing: 0.3px;
+            opacity: 0.75;
+        }
+
+        .clock .time{
+            font-variant-numeric: tabular-nums;
+        }
+
         /* Zoom the image slightly for readability, but keep it clipped inside the frame */
         .logo img{width:100%;height:100%;object-fit:contain;display:block;transform:scale(var(--logo-zoom));transform-origin:center center}
 
-    .announce{flex:1; font-size:var(--font-announce); color:var(--fg); opacity:0.98; letter-spacing: 0.2px;}
-
-    .xid{font-weight:700;color: rgba(234,238,248,0.78); font-size:var(--font-xid); min-width:260px;text-align:right}
+    /* Legacy fields kept (used by JS); hidden in new layout */
+    .announce{display:none;}
+    .xid{display:none;}
 
         /* small responsive helper when showing in browser window */
         @media (max-width:1200px){
@@ -337,9 +432,42 @@
             return Math.min(max, Math.max(min, n));
         }
 
+        function updateClock(){
+            const el = document.getElementById('clock-time');
+            if(!el) return;
+
+            const showSeconds = (qp('seconds','0') === '1');
+            const timeZone = qp('tz','');
+
+            const dtf = new Intl.DateTimeFormat('ja-JP', {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: showSeconds ? '2-digit' : undefined,
+                hour12: false,
+                timeZone: timeZone || undefined,
+            });
+
+            el.textContent = dtf.format(new Date());
+        }
+
         function sanitizeText(s){
             // Keep it simple: this overlay only needs plain text.
             return String(s ?? '').replace(/[\r\n\t]+/g, ' ').trim();
+        }
+
+        function sleep(ms){
+            return new Promise(r=>setTimeout(r, ms));
+        }
+
+        async function typeText(el, text, {speedMs=60, startDelayMs=0} = {}){
+            if(!el) return;
+            const safe = sanitizeText(text);
+            el.textContent = '';
+            if(startDelayMs) await sleep(startDelayMs);
+            for(let i=0;i<safe.length;i++){
+                el.textContent += safe[i];
+                await sleep(speedMs);
+            }
         }
 
         function showToast({title, body, type, ms}){
@@ -618,6 +746,10 @@
                 window.setInterval(pollStatus, 2500);
             }
 
+            // Clock: update immediately + keep it accurate.
+            updateClock();
+            window.setInterval(updateClock, 1000);
+
             // Set text fields
             async function applyOverlaySettings(){
                 // Read saved defaults from server (optional). URL params have priority.
@@ -636,8 +768,27 @@
                 const logo = qp('logo', (typeof saved.logo === 'string') ? saved.logo : '');
                 const chatUrl = qp('chat', (typeof saved.chat === 'string') ? saved.chat : '');
 
+                const fanart = qp('fanart', (typeof saved.fanart === 'string' && saved.fanart) ? saved.fanart : '#はのアート');
+
+                // Legacy nodes (kept for compatibility)
                 document.getElementById('announce').textContent = announce;
                 document.getElementById('xid').textContent = xid;
+
+                // New bottom-bar nodes
+                const titleEl = document.getElementById('title-text');
+                if(titleEl) titleEl.textContent = announce;
+
+                const fanartEl = document.getElementById('fanart');
+                if(fanartEl) fanartEl.textContent = fanart;
+
+                const xidTypeTarget = document.getElementById('xid-typed');
+                if(xidTypeTarget){
+                    // Allow type speed control: ?typeSpeed=55
+                    const sp = parseInt(qp('typeSpeed',''), 10);
+                    const speedMs = Number.isFinite(sp) ? Math.max(18, Math.min(180, sp)) : 55;
+                    // Type once on load; you can retrigger by reloading.
+                    typeText(xidTypeTarget, xid, { speedMs, startDelayMs: 250 });
+                }
 
                 const savedZoom = (typeof saved.logoZoom !== 'undefined' && saved.logoZoom !== null) ? Number(saved.logoZoom) : NaN;
                 if(qp('logoZoom','') === '' && !Number.isNaN(savedZoom)){
@@ -718,6 +869,23 @@
 
         <div class="bottom-bar" aria-label="stream info bar">
             <div class="logo"><img id="logo-img" src="" alt="logo"></div>
+            <div class="clock" aria-label="current time">
+                <div class="label">NOW</div>
+                <div class="time" id="clock-time">--:--</div>
+            </div>
+
+            <div class="chip xid-typing" aria-label="x id">
+                <span id="xid-typed">@your_x_id</span><span class="caret">|</span>
+            </div>
+            <div class="chip secondary" aria-label="fanart tag">
+                <span id="fanart">#fanart</span>
+            </div>
+            <div class="title-box" aria-label="stream title">
+                <div class="pill">Title</div>
+                <div class="text" id="title-text">Welcome to the stream!</div>
+            </div>
+
+            <!-- Legacy nodes (hidden by CSS). Keep IDs so existing JS stays compatible. -->
             <div class="announce" id="announce">Welcome to the stream! Enjoy your stay.</div>
             <div class="xid" id="xid">@your_x_id</div>
         </div>
