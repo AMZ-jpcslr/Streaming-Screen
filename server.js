@@ -135,7 +135,9 @@ const YT_CLIENT_ID = process.env.YT_CLIENT_ID || '';
 const YT_CLIENT_SECRET = process.env.YT_CLIENT_SECRET || '';
 const YT_REDIRECT_URL = process.env.YT_REDIRECT_URL || '';
 const YT_CHANNEL_ID = process.env.YT_CHANNEL_ID || '';
-const YT_POLL_MS = Number(process.env.YT_POLL_MS || 10000);
+// Default polling interval (ms). YouTube may return pollingIntervalMillis which must be respected.
+// We treat this as a *minimum* interval; lowering it increases responsiveness but may increase quota usage.
+const YT_POLL_MS = Number(process.env.YT_POLL_MS || 5000);
 // Manual switch: if false, do not poll YouTube at all (prevents quota burn)
 // Can be toggled at runtime via /api/yt/enabled
 let ytEnabled = String(process.env.YT_ENABLED || '0') === '1';

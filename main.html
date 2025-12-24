@@ -126,14 +126,68 @@
             display:flex;flex-direction:column;gap:8px;
         }
 
+        /* Chat bubble style */
         .msg{
-            padding:10px 12px; border-radius:10px; background:var(--glass); color:var(--fg); font-size:var(--font-chat-msg); max-width:100%;
-            line-height: 1.35;
-            box-shadow: 0 1px 0 rgba(255,255,255,0.02) inset;
+            position:relative;
+            padding:10px 12px;
+            border-radius:14px;
+            color:var(--fg);
+            font-size:var(--font-chat-msg);
+            max-width:100%;
+            line-height: 1.38;
+            background: linear-gradient(180deg, rgba(20,30,55,0.78), rgba(20,30,55,0.62));
+            border: 1px solid rgba(234,238,248,0.10);
+            box-shadow:
+              0 1px 0 rgba(255,255,255,0.03) inset,
+              0 10px 24px rgba(0,0,0,0.18);
+            transform-origin: left bottom;
+        }
+
+        /* Bubble tail */
+        .msg::before{
+            content:'';
+            position:absolute;
+            left:10px;
+            bottom:-6px;
+            width:12px;
+            height:12px;
+            background: inherit;
+            border-left: 1px solid rgba(234,238,248,0.10);
+            border-bottom: 1px solid rgba(234,238,248,0.10);
+            transform: rotate(45deg);
+            border-bottom-left-radius: 3px;
+            filter: drop-shadow(0 6px 10px rgba(0,0,0,0.10));
         }
 
         .msg:nth-child(2n){
-            background: var(--glass-2);
+            background: linear-gradient(180deg, rgba(20,30,55,0.88), rgba(20,30,55,0.68));
+        }
+
+        .msg .n{font-weight:900; color: rgba(234,238,248,0.92);}
+        .msg .t{color: rgba(234,238,248,0.88);}
+
+        /* New message animation */
+        .msg.in{
+            animation: chatIn 240ms ease-out both;
+        }
+
+        .msg.flash{
+            animation: chatFlash 520ms ease-out both;
+        }
+
+        @keyframes chatIn{
+            from{ transform: translateX(10px) translateY(4px) scale(0.98); opacity:0; }
+            to{ transform: translateX(0) translateY(0) scale(1); opacity:1; }
+        }
+
+        @keyframes chatFlash{
+            0%{ box-shadow: 0 0 0 rgba(92,167,255,0.0), 0 10px 24px rgba(0,0,0,0.18); }
+            35%{ box-shadow: 0 0 18px rgba(92,167,255,0.28), 0 10px 24px rgba(0,0,0,0.18); }
+            100%{ box-shadow: 0 0 0 rgba(92,167,255,0.0), 0 10px 24px rgba(0,0,0,0.18); }
+        }
+
+        @media (prefers-reduced-motion: reduce){
+            .msg.in, .msg.flash{animation:none !important;}
         }
 
         /* Bottom bar across full stage */
@@ -299,9 +353,28 @@
             const nearBottom = (chatContainer.scrollHeight - chatContainer.scrollTop - chatContainer.clientHeight) < 40;
 
             const d = document.createElement('div');
-            d.className = 'msg';
-            d.textContent = `${sanitizeText(name)}: ${sanitizeText(text)}`;
+            d.className = 'msg in';
+
+            const n = document.createElement('span');
+            n.className = 'n';
+            n.textContent = sanitizeText(name) || '名無し';
+
+            const sep = document.createTextNode(': ');
+
+            const t = document.createElement('span');
+            t.className = 't';
+            t.textContent = sanitizeText(text);
+
+            d.appendChild(n);
+            d.appendChild(sep);
+            d.appendChild(t);
             chatContainer.appendChild(d);
+
+            // Add a subtle flash effect after insertion
+            window.setTimeout(()=>{
+                d.classList.add('flash');
+                d.classList.remove('in');
+            }, 20);
 
             // cap messages to keep DOM light
             const MAX = 80;

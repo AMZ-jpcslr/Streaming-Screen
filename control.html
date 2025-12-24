@@ -39,9 +39,37 @@
     .full{grid-column:1/-1}
     .actions{display:flex;gap:10px;flex-wrap:wrap}
     .mono{font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;}
+
+    /* Toast / notice */
+    .notice{
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      z-index: 9999;
+      width: min(520px, calc(100vw - 32px));
+      padding: 12px 12px;
+      border-radius: 14px;
+      border: 1px solid rgba(234,238,248,0.14);
+      background: rgba(20,30,55,0.92);
+      box-shadow: 0 18px 44px rgba(0,0,0,0.35);
+      display: none;
+    }
+    .notice.show{display:block; animation: nIn 180ms ease-out;}
+    .notice .n-title{font-weight:900; margin:0 0 4px; font-size:14px;}
+    .notice .n-body{margin:0; font-size:13px; color: rgba(234,238,248,0.82); line-height:1.35;}
+    .notice.ok{outline:2px solid rgba(0,214,143,0.36);}
+    .notice.warn{outline:2px solid rgba(255,196,0,0.28);}
+    .notice.ng{outline:2px solid rgba(255,92,92,0.26);}
+    @keyframes nIn{from{transform:translateY(10px); opacity:0;} to{transform:translateY(0); opacity:1;}}
+    @media (prefers-reduced-motion: reduce){.notice.show{animation:none;}}
   </style>
 </head>
 <body>
+  <div id="notice" class="notice" aria-live="polite" aria-atomic="true">
+    <div id="notice-title" class="n-title">-</div>
+    <p id="notice-body" class="n-body">-</p>
+  </div>
+
   <div class="wrap">
     <h1>管理ページ（Control）</h1>
     <p class="sub">
@@ -139,6 +167,21 @@
       el.classList.add(on ? 'ok' : 'warn');
     }
 
+    function showNotice({title, body, type, ms}){
+      const el = document.getElementById('notice');
+      const t = document.getElementById('notice-title');
+      const b = document.getElementById('notice-body');
+      if(!el || !t || !b) return;
+      t.textContent = String(title || '通知');
+      b.textContent = String(body || '');
+      el.classList.remove('ok','warn','ng');
+      el.classList.add(type === 'ok' ? 'ok' : (type === 'ng' ? 'ng' : 'warn'));
+      el.classList.add('show');
+      window.clearTimeout(showNotice._timer);
+      const dur = Number.isFinite(ms) ? ms : 2600;
+      showNotice._timer = window.setTimeout(()=>el.classList.remove('show'), Math.max(900, dur));
+    }
+
     async function refresh(){
       const [authRes, ytRes] = await Promise.all([
         fetch('/api/auth/status', { cache: 'no-store' }),
@@ -161,64 +204,92 @@
       document.getElementById('st-backoff').textContent = yt.backoffUntil || '-';
       const st = yt.lastStatus ? `${(yt.lastStatus.level || 'info').toUpperCase()}: ${yt.lastStatus.message || ''}` : '-';
       document.getElementById('st-status').textContent = st;
+
+      // Small hint when OAuth isn't ready
+      if(!auth.oauthConfigured){
+        showNotice({ title: 'OAuth未設定', body: 'YT_CLIENT_ID / YT_CLIENT_SECRET / YT_REDIRECT_URL をRailwayに設定してください', type: 'warn', ms: 4200 });
+      }
     }
 
     async function toggle(){
-      const yt = await (await fetch('/api/yt/state', { cache: 'no-store' })).json();
+      let yt = {};
+      try{
+        yt = await (await fetch('/api/yt/state', { cache: 'no-store' })).json();
+      } catch(_){
+        showNotice({ title: 'エラー', body: '状態取得に失敗しました', type: 'ng' });
+        return;
+      }
       const enabled = !!yt.ytEnabled;
       const btn = document.getElementById('btn-toggle');
       btn.disabled = true;
-      await fetch('/api/yt/enabled', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ enabled: !enabled })
-      });
-      await refresh();
+      try{
+        const r = await fetch('/api/yt/enabled', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ enabled: !enabled })
+        });
+        if(!r.ok){
+          const txt = await r.text().catch(()=> '');
+          showNotice({ title: '切り替え失敗', body: `YTを${!enabled ? 'ON' : 'OFF'}にできませんでした（${r.status}） ${txt}`.trim(), type: 'ng', ms: 5200 });
+        } else {
+          showNotice({ title: 'OK', body: `YTを${!enabled ? 'ON' : 'OFF'}にしました`, type: 'ok' });
+        }
+      } catch(e){
+        showNotice({ title: '切り替え失敗', body: String(e?.message || e), type: 'ng', ms: 5200 });
+      } finally {
+        btn.disabled = false;
+      }
+      await refresh().catch(()=>{});
+    }
+
+    async function loadSavedSettings(){
+      try{
+        const r = await fetch('/api/settings', { cache: 'no-store' });
+        if(!r.ok) return;
+        const s = await r.json();
+        if(s && typeof s === 'object'){
+          if(typeof s.announce === 'string') document.getElementById('f-announce').value = s.announce;
+          if(typeof s.xid === 'string') document.getElementById('f-xid').value = s.xid;
+          if(typeof s.logo === 'string') document.getElementById('f-logo').value = s.logo;
+          if(typeof s.logoZoom !== 'undefined' && s.logoZoom !== null) document.getElementById('f-logoZoom').value = String(s.logoZoom);
+          if(typeof s.chat === 'string') document.getElementById('f-chat').value = s.chat;
+        }
+        showNotice({ title: '設定ロード', body: '保存済み設定を読み込みました', type: 'ok' });
+      } catch(_){
+        showNotice({ title: '設定ロード失敗', body: '保存済み設定の読み込みに失敗しました', type: 'ng', ms: 5200 });
+      }
+    }
+
+    async function saveSettings(){
+      const btn = document.getElementById('btn-save');
+      btn.disabled = true;
+      try{
+        const body = {
+          announce: document.getElementById('f-announce').value,
+          xid: document.getElementById('f-xid').value,
+          logo: document.getElementById('f-logo').value,
+          logoZoom: document.getElementById('f-logoZoom').value,
+          chat: document.getElementById('f-chat').value,
+        };
+        const r = await fetch('/api/settings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body)
+        });
+        if(!r.ok){
+          const txt = await r.text().catch(()=> '');
+          throw new Error(`save failed (${r.status}) ${txt}`.trim());
+        }
+        showNotice({ title: '保存OK', body: '設定を保存しました（配信画面をリロードすると反映されます）', type: 'ok', ms: 3600 });
+      } catch(e){
+        showNotice({ title: '保存失敗', body: String(e?.message || e), type: 'ng', ms: 5200 });
+      } finally {
+        btn.disabled = false;
+      }
     }
 
     function buildUrl(preview){
       const base = `${location.origin}/`;
-      async function loadSavedSettings(){
-        try{
-          const r = await fetch('/api/settings', { cache: 'no-store' });
-          if(!r.ok) return;
-          const s = await r.json();
-          if(s && typeof s === 'object'){
-            if(typeof s.announce === 'string') document.getElementById('f-announce').value = s.announce;
-            if(typeof s.xid === 'string') document.getElementById('f-xid').value = s.xid;
-            if(typeof s.logo === 'string') document.getElementById('f-logo').value = s.logo;
-            if(typeof s.logoZoom !== 'undefined') document.getElementById('f-logoZoom').value = String(s.logoZoom);
-            if(typeof s.chat === 'string') document.getElementById('f-chat').value = s.chat;
-          }
-        } catch(_){
-          // ignore
-        }
-      }
-
-      async function saveSettings(){
-        const btn = document.getElementById('btn-save');
-        btn.disabled = true;
-        try{
-          const body = {
-            announce: document.getElementById('f-announce').value,
-            xid: document.getElementById('f-xid').value,
-            logo: document.getElementById('f-logo').value,
-            logoZoom: document.getElementById('f-logoZoom').value,
-            chat: document.getElementById('f-chat').value,
-          };
-          const r = await fetch('/api/settings', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(body)
-          });
-          if(!r.ok) throw new Error('save failed');
-        } catch(_){
-          // ignore
-        } finally {
-          btn.disabled = false;
-        }
-      }
-
       const announce = document.getElementById('f-announce').value.trim();
       const xid = document.getElementById('f-xid').value.trim();
       const logo = document.getElementById('f-logo').value.trim();
@@ -232,10 +303,6 @@
       if(logo) params.push(`logo=${enc(logo)}`);
       if(logoZoom) params.push(`logoZoom=${enc(logoZoom)}`);
       if(chat) params.push(`chat=${enc(chat)}`);
-
-      // Keep admin token on generated URLs only if user explicitly opened control with token.
-      // (Overlay itself does not require token.)
-
       return base + (params.length ? `?${params.join('&')}` : '');
     }
 
@@ -244,17 +311,22 @@
       out.value = url;
       document.getElementById('btn-open').disabled = !url;
       document.getElementById('btn-copy').disabled = !url;
-      document.getElementById('btn-save').addEventListener('click', ()=>{
-        saveSettings().catch(()=>{});
-      });
-
     }
-      loadSavedSettings().catch(()=>{});
+
+    // Initial load
+    loadSavedSettings().catch(()=>{});
 
     document.getElementById('btn-toggle').addEventListener('click', ()=>toggle().catch(()=>{}));
 
     document.getElementById('btn-build').addEventListener('click', ()=>{
       setGenerated(buildUrl(false));
+      showNotice({ title: 'URL生成', body: 'URLを生成しました', type: 'ok', ms: 1800 });
+    });
+
+    document.getElementById('btn-save').addEventListener('click', ()=>{
+      saveSettings().then(()=>{
+        // saved; keep quiet (no-alert) for OBS-friendly UI
+      }).catch(()=>{});
     });
 
     document.getElementById('btn-open').addEventListener('click', ()=>{
