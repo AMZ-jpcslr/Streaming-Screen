@@ -138,12 +138,31 @@
             font-size:var(--font-chat-msg);
             max-width:100%;
             line-height: 1.38;
-            background: linear-gradient(180deg, rgba(20,30,55,0.78), rgba(20,30,55,0.62));
+            /* Use variables so the tail + decorations can match exactly */
+            --bubble-bg: linear-gradient(180deg, rgba(20,30,55,0.78), rgba(20,30,55,0.62));
+            --bubble-border: rgba(234,238,248,0.10);
+            background: var(--bubble-bg);
             border: 1px solid rgba(234,238,248,0.10);
             box-shadow:
               0 1px 0 rgba(255,255,255,0.03) inset,
               0 10px 24px rgba(0,0,0,0.18);
             transform-origin: left bottom;
+            /* allow the offset frame to peek out */
+            overflow: visible;
+        }
+
+        /* White offset frame behind the bubble (slightly protruding to bottom-right) */
+        .msg::after{
+            content:'';
+            position:absolute;
+            inset:0;
+            transform: translate(6px, 6px);
+            border-radius: inherit;
+            background: rgba(255,255,255,0.92);
+            border: 1px solid rgba(255,255,255,0.88);
+            box-shadow: 0 10px 18px rgba(0,0,0,0.18);
+            z-index: -1;
+            pointer-events: none;
         }
 
         /* Bubble tail */
@@ -154,20 +173,29 @@
             bottom:-6px;
             width:12px;
             height:12px;
-            background: inherit;
-            border-left: 1px solid rgba(234,238,248,0.10);
-            border-bottom: 1px solid rgba(234,238,248,0.10);
+            /* Match bubble body exactly (avoid mismatch from 'inherit') */
+            background: var(--bubble-bg);
+            border-left: 1px solid var(--bubble-border);
+            border-bottom: 1px solid var(--bubble-border);
             transform: rotate(45deg);
             border-bottom-left-radius: 3px;
             filter: drop-shadow(0 6px 10px rgba(0,0,0,0.10));
         }
 
         .msg:nth-child(2n){
-            background: linear-gradient(180deg, rgba(20,30,55,0.88), rgba(20,30,55,0.68));
+            --bubble-bg: linear-gradient(180deg, rgba(20,30,55,0.88), rgba(20,30,55,0.68));
+            background: var(--bubble-bg);
         }
 
         .msg .n{font-weight:900; color: rgba(234,238,248,0.92);}
-        .msg .t{color: rgba(234,238,248,0.88);}
+        .msg .t{
+            color: rgba(234,238,248,0.88);
+            /* Allow long messages to wrap to multiple lines instead of clipping */
+            white-space: normal;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            hyphens: auto;
+        }
 
         .msg .rb{display:inline-flex; gap:6px; align-items:center;}
         .msg .tag{
