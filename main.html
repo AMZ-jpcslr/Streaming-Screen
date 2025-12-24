@@ -90,7 +90,8 @@
             right:0;
             top:0;
             width:var(--sidebar-w);
-            height: calc(var(--height-game) + var(--bottombar-h));
+            /* Keep chat area above the bottom bar so it never overlaps */
+            height: var(--height-game);
             padding:18px;
             box-sizing:border-box;
             backdrop-filter: blur(6px);
