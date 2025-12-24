@@ -591,6 +591,11 @@ app.use('/uploads', express.static(uploadsDir, {
   maxAge: '1h'
 }));
 
+// Default logo alias (requested): expose assets/logo.jpg at /logo.jpg
+app.get('/logo.jpg', (_req, res) => {
+  res.sendFile(path.join(rootDir, 'assets', 'logo.jpg'));
+});
+
 // ---- Admin upload endpoints ----
 // Upload a logo image and expose it at /uploads/logo (no extension).
 // Control auth required.
