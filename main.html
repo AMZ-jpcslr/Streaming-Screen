@@ -166,6 +166,28 @@
         .msg .n{font-weight:900; color: rgba(234,238,248,0.92);}
         .msg .t{color: rgba(234,238,248,0.88);}
 
+        .msg .rb{display:inline-flex; gap:6px; align-items:center;}
+        .msg .tag{
+            display:inline-flex;
+            align-items:center;
+            justify-content:center;
+            height: 18px;
+            min-width: 18px;
+            padding: 0 6px;
+            border-radius: 999px;
+            font-weight: 900;
+            font-size: 12px;
+            line-height: 18px;
+            letter-spacing: 0.1px;
+            border: 1px solid rgba(234,238,248,0.16);
+            background: rgba(10,12,18,0.35);
+            color: rgba(234,238,248,0.92);
+            vertical-align: middle;
+        }
+        .msg .tag.owner{background: rgba(255,196,0,0.18); border-color: rgba(255,196,0,0.35);}
+        .msg .tag.mod{background: rgba(92,167,255,0.18); border-color: rgba(92,167,255,0.35);}
+        .msg .tag.member{background: rgba(0,214,143,0.16); border-color: rgba(0,214,143,0.30);}
+
         /* New message animation */
         .msg.in{
             animation: chatIn 240ms ease-out both;
@@ -176,8 +198,9 @@
         }
 
         @keyframes chatIn{
-            from{ transform: translateX(10px) translateY(4px) scale(0.98); opacity:0; }
-            to{ transform: translateX(0) translateY(0) scale(1); opacity:1; }
+            0%{ transform: translateX(12px) translateY(6px) scale(0.86); opacity:0; filter: blur(1.4px); }
+            60%{ transform: translateX(0) translateY(0) scale(1.04); opacity:1; filter: blur(0); }
+            100%{ transform: translateX(0) translateY(0) scale(1); opacity:1; filter: blur(0); }
         }
 
         @keyframes chatFlash{
@@ -345,7 +368,7 @@
             }, Math.max(800, dur));
         }
 
-        function appendChatMessage({name, text}){
+        function appendChatMessage({name, text, role, isOwner, isMod, isMember}){
             const chatContainer = document.getElementById('chat-body');
             if(!chatContainer) return;
 
@@ -355,9 +378,40 @@
             const d = document.createElement('div');
             d.className = 'msg in';
 
+            const rb = document.createElement('span');
+            rb.className = 'rb';
+
             const n = document.createElement('span');
             n.className = 'n';
             n.textContent = sanitizeText(name) || '名無し';
+
+            // role badges
+            const r = String(role || '').toLowerCase();
+            const showOwner = (r === 'owner') || Boolean(isOwner);
+            const showMod = (r === 'mod') || Boolean(isMod);
+            const showMember = (r === 'member') || Boolean(isMember);
+
+            if(showOwner){
+                const tag = document.createElement('span');
+                tag.className = 'tag owner';
+                tag.textContent = '👑';
+                tag.title = '配信者';
+                rb.appendChild(tag);
+            } else if(showMod){
+                const tag = document.createElement('span');
+                tag.className = 'tag mod';
+                tag.textContent = '🔧';
+                tag.title = 'モデレーター';
+                rb.appendChild(tag);
+            } else if(showMember){
+                const tag = document.createElement('span');
+                tag.className = 'tag member';
+                tag.textContent = '★';
+                tag.title = 'メンバー';
+                rb.appendChild(tag);
+            }
+
+            rb.appendChild(n);
 
             const sep = document.createTextNode(': ');
 
@@ -365,7 +419,7 @@
             t.className = 't';
             t.textContent = sanitizeText(text);
 
-            d.appendChild(n);
+            d.appendChild(rb);
             d.appendChild(sep);
             d.appendChild(t);
             chatContainer.appendChild(d);
@@ -399,7 +453,14 @@
                     if(data.kind === 'toast'){
                         showToast({ title: data.title, body: data.body, type: data.type, ms: data.ms });
                     } else if(data.kind === 'chat'){
-                        appendChatMessage({ name: data.name, text: data.text });
+                        appendChatMessage({
+                            name: data.name,
+                            text: data.text,
+                            role: data.role,
+                            isOwner: data.isOwner,
+                            isMod: data.isMod,
+                            isMember: data.isMember
+                        });
                     }
                 });
                 es.onerror = () => {

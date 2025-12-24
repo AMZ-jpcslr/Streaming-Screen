@@ -382,6 +382,11 @@ async function pollLiveChat(oauthTokens) {
     const name = item?.authorDetails?.displayName || 'Someone';
     const text = String(item?.snippet?.displayMessage || '').trim();
 
+  const isOwner = Boolean(item?.authorDetails?.isChatOwner);
+  const isMod = Boolean(item?.authorDetails?.isChatModerator);
+  const isMember = Boolean(item?.authorDetails?.isChatSponsor);
+  const role = isOwner ? 'owner' : (isMod ? 'mod' : (isMember ? 'member' : ''));
+
     // Always broadcast normal chat messages (best-effort)
     if (text) {
       broadcastEvent({
@@ -389,6 +394,10 @@ async function pollLiveChat(oauthTokens) {
         id,
         name,
         text,
+        role,
+        isOwner,
+        isMod,
+        isMember,
         publishedAt: item?.snippet?.publishedAt || null
       });
     }
