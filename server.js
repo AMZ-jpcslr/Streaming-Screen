@@ -6,6 +6,17 @@ const { google } = require('googleapis');
 
 const app = express();
 
+// ---- Process-level diagnostics (helps on Railway 502 / crashes) ----
+process.on('uncaughtException', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[fatal] uncaughtException', err);
+});
+
+process.on('unhandledRejection', (err) => {
+  // eslint-disable-next-line no-console
+  console.error('[fatal] unhandledRejection', err);
+});
+
 // Railway / Heroku style: platform provides PORT
 const port = Number(process.env.PORT || 3000);
 
@@ -145,6 +156,10 @@ const YT_CHANNEL_TTL_MS = Number(process.env.YT_CHANNEL_TTL_MS || 6 * 60 * 60 * 
 const YT_BACKOFF_MAX_MS = Number(process.env.YT_BACKOFF_MAX_MS || 30 * 60 * 1000); // 30m
 
 const oauthConfigured = Boolean(YT_CLIENT_ID && YT_CLIENT_SECRET && YT_REDIRECT_URL);
+
+// Startup summary (do not log secrets)
+// eslint-disable-next-line no-console
+console.log('[boot] oauthConfigured=%s ytEnabled=%s port=%s host=%s redirectUrl=%s', oauthConfigured, ytEnabled, port, process.env.HOST || '0.0.0.0', Boolean(YT_REDIRECT_URL));
 
 app.use(cookieSession({
   name: 'ss_session',
@@ -564,6 +579,11 @@ app.get('/api/auth/status', (req, res) => {
     authed: Boolean(req.session?.oauthTokens),
     redirectUrl: YT_REDIRECT_URL ? true : false
   });
+});
+
+// Basic health endpoint (Railway/uptime checks)
+app.get('/health', (_req, res) => {
+  res.status(200).json({ ok: true, ts: new Date().toISOString() });
 });
 
 app.get('/api/auth/start', (req, res) => {
