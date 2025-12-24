@@ -690,11 +690,16 @@
 
                                 const ytEnabled = (yt && typeof yt.ytEnabled === 'boolean') ? yt.ytEnabled : false;
                                 const enabledBadge = ytEnabled ? badge('ok','YT ON') : badge('warn','YT OFF');
+                                const enableHint = ytEnabled
+                                    ? ''
+                                    : `<div style="margin-top:6px; color: rgba(255,196,0,0.92); font-weight:900;">※ YT OFF のため YouTube API を叩かず、ライブ検出/コメント取得は動きません。</div>`;
                                 const toggleHtml = `
                                     <button id="yt-toggle" style="cursor:pointer; padding:6px 10px; border-radius:10px; border:1px solid rgba(234,238,248,0.18); background: rgba(20,30,55,0.55); color: rgba(234,238,248,0.92); font-weight:800;">
                                         ${ytEnabled ? 'コメント取得をOFF' : 'コメント取得をON'}
                                     </button>
                                     <span style="margin-left:8px; color: rgba(234,238,248,0.72);">（OFFだとAPIを叩かずクォータ消費しません）</span>
+                                                    ${enableHint}
+                                                    ${ytEnabled ? '' : `<div style=\"margin-top:6px;\"><a href=\"/control\" target=\"_blank\" rel=\"noopener\" style=\"color: rgba(234,238,248,0.95); font-weight:900; text-decoration: underline;\">/control</a> からON/OFF管理もできます。</div>`}
                                 `;
 
                 const rows = [
