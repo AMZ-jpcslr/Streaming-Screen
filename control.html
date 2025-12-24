@@ -326,10 +326,14 @@
         const fd = new FormData();
         fd.append('logo', file);
         const r = await fetch('/api/upload/logo', { method: 'POST', body: fd });
-        const j = r.ok ? await r.json() : null;
+        let payloadText = '';
+        try{ payloadText = await r.text(); } catch(_){ payloadText = ''; }
+        let j = null;
+        try{ j = payloadText ? JSON.parse(payloadText) : null; } catch(_){ j = null; }
+
         if(!r.ok || !j?.ok || !j?.url){
-          const txt = await r.text().catch(()=> '');
-          throw new Error(`upload failed (${r.status}) ${txt}`.trim());
+          const detail = j ? JSON.stringify(j) : payloadText;
+          throw new Error(`upload failed (${r.status}) ${detail}`.trim());
         }
         document.getElementById('f-logo').value = `${location.origin}${j.url}`;
         showNotice({ title: 'アップロードOK', body: 'ロゴURLに反映しました。必要なら「この内容を保存」を押してください。', type: 'ok', ms: 3800 });

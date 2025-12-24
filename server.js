@@ -24,7 +24,7 @@ const port = Number(process.env.PORT || 3000);
 const rootDir = __dirname;
 const settingsPath = path.join(rootDir, 'settings.json');
 const uploadsDir = path.join(rootDir, 'uploads');
-const uploadedLogoPath = path.join(uploadsDir, 'logo');
+const uploadedLogoBasePath = path.join(uploadsDir, 'logo');
 
 function ensureUploadsDir() {
   try {
@@ -616,16 +616,50 @@ app.post('/api/upload/logo', requireControl, upload.single('logo'), (req, res) =
       return;
     }
 
+    const extByMime = {
+      'image/png': '.png',
+      'image/jpeg': '.jpg',
+      'image/jpg': '.jpg',
+      'image/webp': '.webp',
+      'image/gif': '.gif'
+    };
+    const ext = extByMime[mime] || '';
+
     ensureUploadsDir();
-    fs.writeFileSync(uploadedLogoPath, f.buffer);
+
+    // Remove old logo variants so only one exists.
+    for (const e of Object.values(extByMime)) {
+      const p = uploadedLogoBasePath + e;
+      try { if (fs.existsSync(p)) fs.unlinkSync(p); } catch (_) { /* ignore */ }
+    }
+
+    const filePath = uploadedLogoBasePath + ext;
+    fs.writeFileSync(filePath, f.buffer);
 
     // Cache-busting URL so clients update immediately.
     const url = `/uploads/logo?v=${Date.now()}`;
-    res.status(200).json({ ok: true, url });
+    res.status(200).json({ ok: true, url, mime });
   } catch (e) {
     // eslint-disable-next-line no-console
     console.error('[upload] logo failed', e);
     res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
+// Stable logo URL that redirects to the actual file with extension.
+// This makes the browser infer the right content-type/decoder reliably.
+app.get('/uploads/logo', (_req, res) => {
+  try {
+    const candidates = ['.png', '.jpg', '.webp', '.gif'].map((e) => uploadedLogoBasePath + e);
+    const found = candidates.find((p) => fs.existsSync(p));
+    if (!found) {
+      res.status(404).send('not found');
+      return;
+    }
+    const ext = path.extname(found);
+    res.redirect(302, `/uploads/logo${ext}`);
+  } catch (_) {
+    res.status(500).send('internal_error');
   }
 });
 
