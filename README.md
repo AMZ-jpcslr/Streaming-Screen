@@ -127,6 +127,34 @@ Railway Variables に以下を設定すると、管理ページが Basic 認証�
 3) OAuth 同意画面を作成
 4) OAuth クライアント（Webアプリ）を作成
 
+### 「このアプリは Google で確認されていません」を消したい（OAuth審査）
+
+他人にも使ってもらう場合、Googleログイン時に「このアプリは Google で確認されていません」が出ることがあります。
+この表示を無くすには、基本的に **Google の OAuth アプリ検証（Verification）** を通す必要があります。
+
+本リポジトリは `youtube.readonly` のみを要求するようにしているため（読み取り専用）、スコープを増やさずに申請するのがおすすめです。
+
+#### 審査用URL（GitHub Pages）
+
+このリポジトリには審査用に `docs/` 配下へ以下のページを同梱しています：
+
+- `docs/index.html`（アプリ説明）
+- `docs/privacy.html`（プライバシーポリシー）
+- `docs/terms.html`（利用規約）
+
+GitHub Pages を使う場合は、GitHub のリポジトリ設定 → Pages で `docs/` を公開し、
+OAuth 同意画面のURL欄に以下を設定します（例）：
+
+- アプリ ホームページ: `https://<user>.github.io/<repo>/`
+- プライバシーポリシー: `https://<user>.github.io/<repo>/privacy.html`
+- 利用規約: `https://<user>.github.io/<repo>/terms.html`
+
+#### 申請時の説明（例）
+
+- 目的：YouTube Live のチャットを読み取り、OBSのオーバーレイ表示に利用する
+- 取得：YouTube Data API v3 からチャットを読み取り（`youtube.readonly`）
+- 変更：コメント投稿やチャンネル管理などの操作は行わない（読み取りのみ）
+
 ### Railway 側で設定する環境変数
 
 #### 必須（YouTube API連携を使う場合）

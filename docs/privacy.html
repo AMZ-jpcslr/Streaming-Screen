@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>プライバシーポリシー - Streaming-Screen</title>
+  <style>
+    :root{color-scheme:light;}
+    body{font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Noto Sans JP",sans-serif; margin:40px; line-height:1.75; color:#111; max-width:920px;}
+    h1{margin:0 0 8px;}
+    h2{margin-top:26px;}
+    .muted{color:#555;}
+    a{color:#0b57d0;}
+    ul{padding-left:22px;}
+    code{background:#f2f2f2; padding:2px 6px; border-radius:6px;}
+    footer{margin-top:40px; padding-top:16px; border-top:1px solid #eee; color:#666; font-size:14px;}
+  </style>
+</head>
+<body>
+  <h1>プライバシーポリシー</h1>
+  <p class="muted">Streaming-Screen（以下「本サービス」）のプライバシーポリシーです。</p>
+
+  <p><a href="index.html">← 戻る</a></p>
+
+  <h2>1. 取得する情報</h2>
+  <p>本サービスは、YouTube Live のコメント表示のために、ユーザー（配信者）がGoogle/YouTubeアカウントでOAuth認可した場合に限り、YouTube Data API v3 を通じて次の情報を取得します。</p>
+  <ul>
+    <li>YouTubeライブチャットのメッセージ内容（例：コメント本文、投稿日時）</li>
+    <li>投稿者の表示名、およびチャット上の属性（配信者/モデレーター/メンバー等の表示に利用するフラグ）</li>
+    <li>スーパーチャット/メンバー通知の判定に必要な情報（APIが返す範囲）</li>
+  </ul>
+  <p>本サービスが要求するOAuthスコープは <code>https://www.googleapis.com/auth/youtube.readonly</code>（読み取り専用）です。</p>
+
+  <h2>2. 利用目的</h2>
+  <ul>
+    <li>OBSのBrowserSource上に、配信用オーバーレイとしてライブチャットを表示するため</li>
+    <li>配信中の特別イベント（例：スーパーチャット）を画面表示するため</li>
+    <li>動作状態表示（取得のON/OFF、エラー表示等）を提供するため</li>
+  </ul>
+
+  <h2>3. 保存・保管について</h2>
+  <p>本サービスは、次のデータを保存する場合があります。</p>
+  <ul>
+    <li><b>表示設定</b>：お知らせ文、X ID、ロゴURL、チャットiframe URLなどを <code>settings.json</code> に保存することがあります（運用者が保存機能を有効にした場合）。</li>
+    <li><b>セッション情報</b>：ログイン状態の維持のため、Cookie（<code>cookie-session</code>）を使用します。</li>
+  </ul>
+  <p>ライブチャットのメッセージ自体は、基本的に画面表示のために取り扱い、永続保存を目的としていません（ただし運用環境やログ設定により、サーバの標準ログに一部情報が出力される場合があります）。</p>
+
+  <h2>4. 第三者提供</h2>
+  <p>本サービスは、法令に基づく場合を除き、取得した情報を第三者に提供しません。</p>
+
+  <h2>5. セキュリティ</h2>
+  <p>本サービスでは、管理ページ（<code>/control</code>）をBasic認証等で保護する運用を推奨します。運用者は、認証情報や環境変数（OAuthクライアント情報）を適切に管理してください。</p>
+
+  <h2>6. クッキーについて</h2>
+  <p>本サービスはセッション維持のためにCookieを使用します。ブラウザの設定によりCookieを無効にすると、ログイン状態の維持ができません。</p>
+
+  <h2>7. OAuth認可の取り消し・削除方法</h2>
+  <ul>
+    <li>本サービス側では、<code>/api/auth/logout</code>（ログアウト）によりセッション情報を破棄できます。</li>
+    <li>Googleアカウント側での許可取り消しは、Googleの「セキュリティ」→「サードパーティのアクセス」等から実施できます。</li>
+  </ul>
+
+  <h2>8. 改定</h2>
+  <p>本ポリシーは必要に応じて改定されます。改定後の内容は本ページに掲載した時点で有効になります。</p>
+
+  <footer>
+    <div>Last updated: 2025-12-24</div>
+  </footer>
+</body>
+</html>

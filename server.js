@@ -148,7 +148,7 @@ const YT_REDIRECT_URL = process.env.YT_REDIRECT_URL || '';
 const YT_CHANNEL_ID = process.env.YT_CHANNEL_ID || '';
 // Default polling interval (ms). YouTube may return pollingIntervalMillis which must be respected.
 // We treat this as a *minimum* interval; lowering it increases responsiveness but may increase quota usage.
-const YT_POLL_MS = Number(process.env.YT_POLL_MS || 5000);
+const YT_POLL_MS = Number(process.env.YT_POLL_MS || 15000);
 // Manual switch: if false, do not poll YouTube at all (prevents quota burn)
 // Can be toggled at runtime via /api/yt/enabled
 let ytEnabled = String(process.env.YT_ENABLED || '0') === '1';
@@ -555,7 +555,7 @@ async function pollLoop(session) {
     }
 
     // Non-quota: wait a bit and retry
-    scheduleNextPoll(session, Math.max(5000, Math.max(1200, YT_POLL_MS)), 'retry');
+  scheduleNextPoll(session, Math.max(15_000, Math.max(1200, YT_POLL_MS)), 'retry');
   }
 }
 
