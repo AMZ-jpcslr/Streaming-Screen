@@ -632,7 +632,13 @@
         function startSse(){
             if(!('EventSource' in window)) return;
             try{
+                // Ensure we keep only one SSE connection per page.
+                if(window.__ss_es){
+                    try{ window.__ss_es.close(); }catch(_){ /* ignore */ }
+                    window.__ss_es = null;
+                }
                 const es = new EventSource('/api/events');
+                window.__ss_es = es;
                 es.addEventListener('yt', (ev)=>{
                     let data = null;
                     try{ data = JSON.parse(ev.data); }catch(_){ return; }
@@ -699,6 +705,7 @@
                     ['ライブ検出', `${chatBadge}`],
                     ['liveChatId', yt.activeLiveChatId || '-'],
                     ['SSE接続数', String(yt.sseClients ?? '-')],
+                    ['診断', `<a href="/api/yt/diagnose" target="_blank" rel="noopener" style="color: rgba(234,238,248,0.95); font-weight:900; text-decoration: underline;">/api/yt/diagnose</a> <span style="margin-left:10px; color: rgba(234,238,248,0.72);">（原因の切り分けJSON）</span>`],
                     ['Polling', `${yt.polling ? 'ON' : 'OFF'} (env=${yt.pollMs ?? '-'}ms / effective=${yt.pollMsEffective ?? '-' }ms)`],
                     ['nextPollAt', yt.nextPollAt || '-'],
                     ['backoffUntil', yt.backoffUntil || '-'],

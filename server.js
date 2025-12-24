@@ -201,6 +201,21 @@ function isChatNoLongerLiveError(e) {
   return msg.includes('live chat is no longer live') || reason === 'livechatnotfound' || reason === 'livechatclosed';
 }
 
+function summarizeGoogleApiError(e) {
+  try {
+    const status = e?.code || e?.response?.status;
+    const reason = e?.errors?.[0]?.reason || e?.response?.data?.error?.errors?.[0]?.reason;
+    const message = e?.message || e?.response?.data?.error?.message;
+    return {
+      status: status ?? null,
+      reason: reason ? String(reason) : null,
+      message: message ? String(message) : String(e)
+    };
+  } catch (_) {
+    return { status: null, reason: null, message: String(e) };
+  }
+}
+
 function resetLiveState(reason) {
   lastSeenMessageId = null;
   nextPageToken = null;
@@ -344,7 +359,39 @@ async function pollLiveChat(oauthTokens) {
         broadcastEvent({ kind: 'status', level: 'info', message: `認可チャンネル: ${authedChannel.title}` });
       }
     } catch (e) {
-      broadcastEvent({ kind: 'status', level: 'warn', message: `channels.list failed: ${e?.message || e}` });
+      const info = summarizeGoogleApiError(e);
+      broadcastEvent({
+        kind: 'status',
+        level: 'warn',
+        message: `channels.list failed: ${info.status ?? '-'} ${info.reason ?? ''} ${info.message}`.trim()
+      });
+
+      // Best-effort refresh: if access token expired but refresh_token exists, refresh once.
+      // cookie-session stores tokens; we update the in-memory object so later calls can succeed.
+      if (oauthTokens?.refresh_token) {
+        try {
+          const refreshed = await auth.refreshAccessToken();
+          if (refreshed?.credentials) {
+            oauthTokens.access_token = refreshed.credentials.access_token || oauthTokens.access_token;
+            oauthTokens.expiry_date = refreshed.credentials.expiry_date || oauthTokens.expiry_date;
+            // Note: refresh_token usually isn't returned again.
+            broadcastEvent({ kind: 'status', level: 'info', message: 'アクセストークンを更新しました（retry）' });
+            // Retry channel lookup once
+            authedChannel = await getAuthedChannel(youtube);
+            authedChannelAt = nowIso();
+            if (authedChannel?.title) {
+              broadcastEvent({ kind: 'status', level: 'info', message: `認可チャンネル: ${authedChannel.title}` });
+            }
+          }
+        } catch (e2) {
+          const info2 = summarizeGoogleApiError(e2);
+          broadcastEvent({
+            kind: 'status',
+            level: 'warn',
+            message: `token refresh failed: ${info2.status ?? '-'} ${info2.reason ?? ''} ${info2.message}`.trim()
+          });
+        }
+      }
     }
   }
 
@@ -645,6 +692,90 @@ app.get('/api/yt/state', (req, res) => {
     lastPollAt,
     lastStatus
   });
+});
+
+// ---- Diagnostics endpoint (preview/debug) ----
+// Returns structured details to quickly identify why authedChannel stays '-' or why live isn't detected.
+// This endpoint does NOT expose raw tokens.
+app.get('/api/yt/diagnose', async (req, res) => {
+  const tokens = req.session?.oauthTokens;
+  if (!oauthConfigured) {
+    res.status(200).json({
+      ok: false,
+      reason: 'oauth_not_configured',
+      oauthConfigured,
+      ytEnabled,
+    });
+    return;
+  }
+  if (!tokens) {
+    res.status(200).json({
+      ok: false,
+      reason: 'not_authed',
+      oauthConfigured,
+      ytEnabled,
+    });
+    return;
+  }
+
+  const safeTokenInfo = {
+    hasAccessToken: Boolean(tokens.access_token),
+    hasRefreshToken: Boolean(tokens.refresh_token),
+    tokenType: tokens.token_type || null,
+    scope: tokens.scope || null,
+    expiryDate: typeof tokens.expiry_date === 'number' ? new Date(tokens.expiry_date).toISOString() : null,
+    expired: (typeof tokens.expiry_date === 'number') ? (Date.now() > tokens.expiry_date) : null,
+  };
+
+  const auth = createOAuthClient();
+  auth.setCredentials(tokens);
+  const youtube = google.youtube({ version: 'v3', auth });
+
+  const out = {
+    ok: true,
+    oauthConfigured,
+    ytEnabled,
+    token: safeTokenInfo,
+    checks: {
+      channelsList: null,
+      liveBroadcastsList: null,
+    },
+  };
+
+  // channels.list (mine=true)
+  try {
+    const r = await youtube.channels.list({ part: ['snippet'], mine: true, maxResults: 5 });
+    const items = r?.data?.items || [];
+    out.checks.channelsList = {
+      ok: true,
+      count: items.length,
+      first: items[0] ? { id: items[0].id || null, title: items[0]?.snippet?.title || '' } : null,
+    };
+  } catch (e) {
+    const info = summarizeGoogleApiError(e);
+    out.checks.channelsList = { ok: false, error: info };
+  }
+
+  // liveBroadcasts.list (mine=true, status=active)
+  try {
+    const r = await youtube.liveBroadcasts.list({ part: ['snippet'], mine: true, status: 'active', maxResults: 5 });
+    const items = r?.data?.items || [];
+    const first = items[0];
+    out.checks.liveBroadcastsList = {
+      ok: true,
+      count: items.length,
+      first: first ? {
+        id: first.id || null,
+        title: first?.snippet?.title || '',
+        liveChatId: first?.snippet?.liveChatId || null,
+      } : null,
+    };
+  } catch (e) {
+    const info = summarizeGoogleApiError(e);
+    out.checks.liveBroadcastsList = { ok: false, error: info };
+  }
+
+  res.status(200).json(out);
 });
 
 // ---- SSE events endpoint ----
