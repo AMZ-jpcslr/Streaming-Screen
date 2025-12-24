@@ -385,6 +385,25 @@
         /* Zoom the image slightly for readability, but keep it clipped inside the frame */
         .logo img{width:100%;height:100%;object-fit:contain;display:block;transform:scale(var(--logo-zoom));transform-origin:center center}
 
+        .logo .logo-hint{
+            position:absolute;
+            inset:0;
+            display:flex;
+            align-items:flex-start;
+            justify-content:flex-start;
+            padding:10px 12px;
+            text-align:left;
+            font-weight:800;
+            font-size:12px;
+            line-height:1.25;
+            color: rgba(234,238,248,0.78);
+            border: 1px dashed rgba(234,238,248,0.22);
+            border-radius: 12px;
+            margin: 10px;
+            background: rgba(20,30,55,0.22);
+            pointer-events:none;
+        }
+
     /* Legacy fields kept (used by JS); hidden in new layout */
     .announce{display:none;}
     .xid{display:none;}
@@ -863,12 +882,12 @@
 
                 const chan = qp('channel','Channel Name');
 
-                const announce = qp('announce', (typeof saved.announce === 'string' && saved.announce) ? saved.announce : 'はの【ゲーム実況】チャンネルにようこそ！');
-                const xid = qp('xid', (typeof saved.xid === 'string' && saved.xid) ? saved.xid : '@hano_game');
+                const announce = qp('announce', (typeof saved.announce === 'string' && saved.announce) ? saved.announce : '今日はまったり攻略配信！コメント大歓迎');
+                const xid = qp('xid', (typeof saved.xid === 'string' && saved.xid) ? saved.xid : '@streaming_screen');
                 const logo = qp('logo', (typeof saved.logo === 'string') ? saved.logo : '');
                 const chatUrl = qp('chat', (typeof saved.chat === 'string') ? saved.chat : '');
 
-                const fanart = qp('fanart', (typeof saved.fanart === 'string' && saved.fanart) ? saved.fanart : '#はのアート');
+                const fanart = qp('fanart', (typeof saved.fanart === 'string' && saved.fanart) ? saved.fanart : '#スクリーンアート');
 
                 // Legacy nodes (kept for compatibility)
                 document.getElementById('announce').textContent = announce;
@@ -920,13 +939,19 @@
                 }
 
                 const logoImg = document.getElementById('logo-img');
+                const logoHint = document.getElementById('logo-hint');
                 if(logo){
                     logoImg.src = decodeURIComponent(logo);
                     logoImg.alt = chan + ' logo';
+                    logoImg.style.display = '';
+                    if(logoHint) logoHint.style.display = 'none';
                 } else {
-                    // Default logo from local assets
-                    logoImg.src = './assets/logo.jpg';
-                    logoImg.alt = chan + ' logo';
+                    // In preview, show an empty placeholder with a short instruction.
+                    // In non-preview, keep the logo area empty unless user explicitly sets it.
+                    logoImg.removeAttribute('src');
+                    logoImg.alt = '';
+                    logoImg.style.display = 'none';
+                    if(logoHint) logoHint.style.display = preview ? '' : 'none';
                 }
 
                 // Chat handling:
@@ -992,7 +1017,10 @@
         </div>
 
         <div class="bottom-bar" aria-label="stream info bar">
-            <div class="logo"><img id="logo-img" src="" alt="logo"></div>
+            <div class="logo">
+                <img id="logo-img" src="" alt="logo">
+                <div id="logo-hint" class="logo-hint" style="display:none;">ここに画像を貼れます<br>（管理ページでアップロード）</div>
+            </div>
             <div class="clock" aria-label="current time">
                 <div class="label">NOW</div>
                 <div class="time" id="clock-time">--:--</div>

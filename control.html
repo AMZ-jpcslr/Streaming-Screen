@@ -124,10 +124,23 @@
         <textarea id="f-announce" placeholder="例：今日は〇〇やります！"></textarea>
 
         <div class="row"><div class="label">X ID（xid）</div></div>
-        <input id="f-xid" placeholder="例：@hano_game" />
+  <input id="f-xid" placeholder="例：@streaming_screen" />
+
+  <div class="row"><div class="label">ファンアートタグ（fanart）</div></div>
+  <input id="f-fanart" placeholder="例：#スクリーンアート" />
 
         <div class="row"><div class="label">ロゴURL（logo）</div></div>
         <input id="f-logo" placeholder="例：https://example.com/logo.png（空なら assets/logo.jpg）" />
+
+        <div class="row"><div class="label">ロゴ画像アップロード</div></div>
+        <input id="f-logoFile" type="file" accept="image/*" />
+        <div class="actions">
+          <button id="btn-upload-logo" type="button">ロゴをアップロード</button>
+        </div>
+        <p class="help">
+          画像をアップロードすると、サーバ内に保存され、<span class="mono">logo</span> 欄へ自動でURLが入ります。<br>
+          そのまま「この内容を保存」を押すと、配信画面のデフォルトロゴとして使われます。
+        </p>
 
         <div class="row"><div class="label">ロゴ拡大（logoZoom）</div></div>
         <input id="f-logoZoom" placeholder="例：1.18" />
@@ -150,10 +163,20 @@
       </div>
 
       <div class="card full">
-        <h2>このページで「できるカスタマイズ」について</h2>
+        <h2>使い方（管理ページ / プレビュー / OBS）</h2>
         <p class="help">
-          今回はまず「URL生成（＝既存のURLパラメータでのカスタマイズ）」を管理ページにまとめました。<br>
-          次の段階として、<b>管理ページで保存 → どの端末から開いても同じ設定</b> にすることもできます（サーバ側に設定JSONを保存）。
+          <b>1) 管理ページ（このページ）</b><br>
+          ・配信していない時は「YouTubeコメント取得」を <b>OFF</b> にしてクォータ消費を止めます。<br>
+          ・「お知らせ / X ID / ファンアートタグ / ロゴ / チャットURL」を入力して <b>保存</b> すると、配信画面のデフォルト値として使われます。<br>
+          ・「URLを生成」は、入力内容をURLパラメータにして即共有したい場合に使います（保存より優先されます）。<br>
+          <br>
+          <b>2) プレビュー</b><br>
+          ・<span class="mono">/?preview=1</span> を開くと、ガイド枠と状態パネル付きで確認できます（背景も見えるようにしています）。<br>
+          <br>
+          <b>3) OBSでの使い方（BrowserSource）</b><br>
+          ・ソース追加 → ブラウザ → URLに <span class="mono">/</span>（配信画面）を指定します。<br>
+          ・推奨サイズ：<span class="mono">1920 x 1080</span>。背景は透過なので、ゲーム映像の上に重ねられます。<br>
+          ・配信中のみ「YouTubeコメント取得」をONにし、必要に応じてログイン（認可）を行ってください。
         </p>
       </div>
     </div>
@@ -250,6 +273,7 @@
         if(s && typeof s === 'object'){
           if(typeof s.announce === 'string') document.getElementById('f-announce').value = s.announce;
           if(typeof s.xid === 'string') document.getElementById('f-xid').value = s.xid;
+          if(typeof s.fanart === 'string') document.getElementById('f-fanart').value = s.fanart;
           if(typeof s.logo === 'string') document.getElementById('f-logo').value = s.logo;
           if(typeof s.logoZoom !== 'undefined' && s.logoZoom !== null) document.getElementById('f-logoZoom').value = String(s.logoZoom);
           if(typeof s.chat === 'string') document.getElementById('f-chat').value = s.chat;
@@ -267,6 +291,7 @@
         const body = {
           announce: document.getElementById('f-announce').value,
           xid: document.getElementById('f-xid').value,
+          fanart: document.getElementById('f-fanart').value,
           logo: document.getElementById('f-logo').value,
           logoZoom: document.getElementById('f-logoZoom').value,
           chat: document.getElementById('f-chat').value,
@@ -288,10 +313,38 @@
       }
     }
 
+    async function uploadLogo(){
+      const fileInput = document.getElementById('f-logoFile');
+      const btn = document.getElementById('btn-upload-logo');
+      const file = fileInput?.files?.[0];
+      if(!file){
+        showNotice({ title: 'アップロード', body: '画像ファイルを選択してください', type: 'warn' });
+        return;
+      }
+      btn.disabled = true;
+      try{
+        const fd = new FormData();
+        fd.append('logo', file);
+        const r = await fetch('/api/upload/logo', { method: 'POST', body: fd });
+        const j = r.ok ? await r.json() : null;
+        if(!r.ok || !j?.ok || !j?.url){
+          const txt = await r.text().catch(()=> '');
+          throw new Error(`upload failed (${r.status}) ${txt}`.trim());
+        }
+        document.getElementById('f-logo').value = `${location.origin}${j.url}`;
+        showNotice({ title: 'アップロードOK', body: 'ロゴURLに反映しました。必要なら「この内容を保存」を押してください。', type: 'ok', ms: 3800 });
+      } catch(e){
+        showNotice({ title: 'アップロード失敗', body: String(e?.message || e), type: 'ng', ms: 5200 });
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
     function buildUrl(preview){
       const base = `${location.origin}/`;
       const announce = document.getElementById('f-announce').value.trim();
       const xid = document.getElementById('f-xid').value.trim();
+      const fanart = document.getElementById('f-fanart').value.trim();
       const logo = document.getElementById('f-logo').value.trim();
       const logoZoom = document.getElementById('f-logoZoom').value.trim();
       const chat = document.getElementById('f-chat').value.trim();
@@ -300,6 +353,7 @@
       if(preview) params.push('preview=1');
       if(announce) params.push(`announce=${enc(announce)}`);
       if(xid) params.push(`xid=${enc(xid)}`);
+      if(fanart) params.push(`fanart=${enc(fanart)}`);
       if(logo) params.push(`logo=${enc(logo)}`);
       if(logoZoom) params.push(`logoZoom=${enc(logoZoom)}`);
       if(chat) params.push(`chat=${enc(chat)}`);
@@ -327,6 +381,10 @@
       saveSettings().then(()=>{
         // saved; keep quiet (no-alert) for OBS-friendly UI
       }).catch(()=>{});
+    });
+
+    document.getElementById('btn-upload-logo').addEventListener('click', ()=>{
+      uploadLogo().catch(()=>{});
     });
 
     document.getElementById('btn-open').addEventListener('click', ()=>{

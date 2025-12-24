@@ -3,6 +3,7 @@ const fs = require('fs');
 const express = require('express');
 const cookieSession = require('cookie-session');
 const { google } = require('googleapis');
+const multer = require('multer');
 
 const app = express();
 
@@ -22,6 +23,16 @@ const port = Number(process.env.PORT || 3000);
 
 const rootDir = __dirname;
 const settingsPath = path.join(rootDir, 'settings.json');
+const uploadsDir = path.join(rootDir, 'uploads');
+const uploadedLogoPath = path.join(uploadsDir, 'logo');
+
+function ensureUploadsDir() {
+  try {
+    if (!fs.existsSync(uploadsDir)) fs.mkdirSync(uploadsDir, { recursive: true });
+  } catch (_) {
+    // ignore
+  }
+}
 
 function readSettings() {
   try {
@@ -572,6 +583,52 @@ app.use('/assets', express.static(path.join(rootDir, 'assets'), {
   maxAge: '1h'
 }));
 
+// Uploaded assets (admin-managed, e.g. logo)
+ensureUploadsDir();
+app.use('/uploads', express.static(uploadsDir, {
+  fallthrough: true,
+  etag: true,
+  maxAge: '1h'
+}));
+
+// ---- Admin upload endpoints ----
+// Upload a logo image and expose it at /uploads/logo (no extension).
+// Control auth required.
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 2 * 1024 * 1024 // 2MB
+  }
+});
+
+app.post('/api/upload/logo', requireControl, upload.single('logo'), (req, res) => {
+  try {
+    const f = req.file;
+    if (!f || !f.buffer) {
+      res.status(400).json({ ok: false, error: 'missing_file' });
+      return;
+    }
+
+    const mime = String(f.mimetype || '').toLowerCase();
+    const allowed = new Set(['image/png', 'image/jpeg', 'image/jpg', 'image/webp', 'image/gif']);
+    if (!allowed.has(mime)) {
+      res.status(400).json({ ok: false, error: 'unsupported_type', mime });
+      return;
+    }
+
+    ensureUploadsDir();
+    fs.writeFileSync(uploadedLogoPath, f.buffer);
+
+    // Cache-busting URL so clients update immediately.
+    const url = `/uploads/logo?v=${Date.now()}`;
+    res.status(200).json({ ok: true, url });
+  } catch (e) {
+    // eslint-disable-next-line no-console
+    console.error('[upload] logo failed', e);
+    res.status(500).json({ ok: false, error: 'internal_error' });
+  }
+});
+
 // ---- Auth endpoints ----
 app.get('/api/auth/status', (req, res) => {
   res.json({
@@ -681,6 +738,7 @@ app.post('/api/settings', requireControl, express.json({ limit: '64kb' }), (req,
   const next = {
     announce: typeof b.announce === 'string' ? b.announce : '',
     xid: typeof b.xid === 'string' ? b.xid : '',
+    fanart: typeof b.fanart === 'string' ? b.fanart : '',
     logo: typeof b.logo === 'string' ? b.logo : '',
     logoZoom: typeof b.logoZoom === 'number' ? b.logoZoom : (typeof b.logoZoom === 'string' ? Number(b.logoZoom) : undefined),
     chat: typeof b.chat === 'string' ? b.chat : ''
