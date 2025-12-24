@@ -326,6 +326,23 @@
             text-overflow: ellipsis;
         }
 
+        /* Title marquee (enabled only when overflowing) */
+        .title-box .text.marquee{
+            text-overflow: clip;
+        }
+
+        .title-box .text.marquee > span{
+            display:inline-block;
+            padding-left: 100%;
+            animation: titleMarquee var(--marquee-dur, 14s) linear infinite;
+            will-change: transform;
+        }
+
+        @keyframes titleMarquee{
+            0%{ transform: translateX(0); }
+            100%{ transform: translateX(-100%); }
+        }
+
         .clock .label{
             font-weight:700;
             font-size: 14px;
@@ -468,6 +485,48 @@
                 el.textContent += safe[i];
                 await sleep(speedMs);
             }
+        }
+
+        async function eraseText(el, {speedMs=20} = {}){
+            if(!el) return;
+            const cur = String(el.textContent || '');
+            for(let i=cur.length;i>0;i--){
+                el.textContent = cur.slice(0, i-1);
+                await sleep(speedMs);
+            }
+        }
+
+        function startTypingLoop(el, text){
+            if(!el) return;
+
+            // cancel previous loop if any
+            if(startTypingLoop._token) startTypingLoop._token.canceled = true;
+            const token = { canceled:false };
+            startTypingLoop._token = token;
+
+            const speedParam = parseInt(qp('typeSpeed',''), 10);
+            const eraseSpeedParam = parseInt(qp('eraseSpeed',''), 10);
+            const cycleParam = parseInt(qp('typeCycle',''), 10);
+            const holdParam = parseInt(qp('typeHold',''), 10);
+
+            const typeSpeed = Number.isFinite(speedParam) ? Math.max(18, Math.min(180, speedParam)) : 55;
+            const eraseSpeed = Number.isFinite(eraseSpeedParam) ? Math.max(10, Math.min(120, eraseSpeedParam)) : 20;
+            const holdMs = Number.isFinite(holdParam) ? Math.max(500, Math.min(20000, holdParam)) : 4200;
+            const cycleMs = Number.isFinite(cycleParam) ? Math.max(2000, Math.min(60000, cycleParam)) : 9000;
+
+            (async ()=>{
+                while(!token.canceled){
+                    await typeText(el, text, { speedMs: typeSpeed, startDelayMs: 250 });
+                    if(token.canceled) break;
+                    await sleep(holdMs);
+                    if(token.canceled) break;
+                    await eraseText(el, { speedMs: eraseSpeed });
+                    if(token.canceled) break;
+                    // pad the rest of the cycle
+                    const waitMs = Math.max(0, cycleMs - holdMs);
+                    if(waitMs) await sleep(waitMs);
+                }
+            })();
         }
 
         function showToast({title, body, type, ms}){
@@ -783,11 +842,35 @@
 
                 const xidTypeTarget = document.getElementById('xid-typed');
                 if(xidTypeTarget){
-                    // Allow type speed control: ?typeSpeed=55
-                    const sp = parseInt(qp('typeSpeed',''), 10);
-                    const speedMs = Number.isFinite(sp) ? Math.max(18, Math.min(180, sp)) : 55;
-                    // Type once on load; you can retrigger by reloading.
-                    typeText(xidTypeTarget, xid, { speedMs, startDelayMs: 250 });
+                    // Loop typing animation: type -> hold -> erase -> repeat
+                    startTypingLoop(xidTypeTarget, xid);
+                }
+
+                // Title marquee: if it's long, scroll right -> left like a station board
+                const titleNode = document.getElementById('title-text');
+                if(titleNode){
+                    // Reset to raw text first
+                    const raw = String(announce || '');
+                    titleNode.classList.remove('marquee');
+                    titleNode.textContent = raw;
+
+                    // Measure after layout
+                    requestAnimationFrame(()=>{
+                        const overflowing = titleNode.scrollWidth > titleNode.clientWidth + 4;
+                        if(!overflowing) return;
+
+                        titleNode.innerHTML = '';
+                        const span = document.createElement('span');
+                        span.textContent = raw;
+                        titleNode.appendChild(span);
+                        titleNode.classList.add('marquee');
+
+                        // duration based on length (configurable)
+                        const base = parseFloat(qp('marqueeBase',''));
+                        const perChar = parseFloat(qp('marqueePerChar',''));
+                        const dur = (Number.isFinite(base) ? base : 8) + (Number.isFinite(perChar) ? perChar : 0.22) * raw.length;
+                        titleNode.style.setProperty('--marquee-dur', Math.max(8, Math.min(40, dur)).toFixed(2) + 's');
+                    });
                 }
 
                 const savedZoom = (typeof saved.logoZoom !== 'undefined' && saved.logoZoom !== null) ? Number(saved.logoZoom) : NaN;
