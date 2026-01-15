@@ -468,8 +468,8 @@
         .auth-hint{
             position:absolute;
             left:20px;
-            /* Placed below the status panel so it won't overlap preview chat */
-            top: 420px;
+            /* Place directly below the status panel (dynamic) */
+            top: var(--auth-hint-top, 420px);
             z-index:60;
             width:min(560px, calc(var(--width-game) - 40px));
             padding:12px 12px;
@@ -847,6 +847,16 @@
             const preview = (qp('preview','0') === '1');
             if(preview) document.body.classList.add('preview');
 
+            function layoutPreviewPanels(){
+                if(!preview) return;
+                const sp = document.querySelector('.status-panel');
+                if(!sp) return;
+                // status-panel is placed at top:110px; keep a small gap below it.
+                const rect = sp.getBoundingClientRect();
+                const top = Math.round(rect.bottom + 14);
+                document.documentElement.style.setProperty('--auth-hint-top', top + 'px');
+            }
+
             // OBS 1080p mode (backward compatible):
             // The default layout is already designed for 1920x1080.
             const mode = qp('mode','');
@@ -934,6 +944,15 @@
                         ms: 9000
                     });
                 });
+            }
+
+            // Keep the auth hint below the status panel even if the status panel changes height.
+            if(preview){
+                // Initial layout
+                window.setTimeout(layoutPreviewPanels, 0);
+                // Recompute shortly after pollStatus updates DOM
+                window.setInterval(layoutPreviewPanels, 800);
+                window.addEventListener('resize', ()=>layoutPreviewPanels());
             }
 
             // Clock: update immediately + keep it accurate.
