@@ -98,6 +98,9 @@
             -webkit-backdrop-filter: blur(6px);
         }
 
+        /* When using 2-browser-source layout in OBS, allow hiding the chat sidebar. */
+        body.chat-hide .sidebar{display:none !important;}
+
         .chat-card{
             width:100%;
             height:100%;
@@ -775,7 +778,9 @@
                 const chatBadge = hasChat ? badge('ok','live OK') : badge('warn','no live');
 
                                 const ytEnabled = (yt && typeof yt.ytEnabled === 'boolean') ? yt.ytEnabled : false;
+                                const toastEnabled = (yt && typeof yt.toastEnabled === 'boolean') ? yt.toastEnabled : true;
                                 const enabledBadge = ytEnabled ? badge('ok','YT ON') : badge('warn','YT OFF');
+                                const toastBadge = toastEnabled ? badge('ok','TOAST ON') : badge('warn','TOAST OFF');
                                 const enableHint = ytEnabled
                                     ? ''
                                     : `<div style="margin-top:6px; color: rgba(255,196,0,0.92); font-weight:900;">※ YT OFF のため YouTube API を叩かず、ライブ検出/コメント取得は動きません。</div>`;
@@ -791,6 +796,7 @@
                 const rows = [
                     ['OAuth設定', `${authBadge} ${tokenBadge}`],
                                         ['YouTube取得', `${enabledBadge} ${toggleHtml}`],
+                                        ['特別通知', `${toastBadge} <span style="margin-left:8px; color: rgba(234,238,248,0.72);">（/control でON/OFF）</span>`],
                     ['認可チャンネル', yt.authedChannel ? `${sanitizeText(yt.authedChannel.title || '(no title)')} (${sanitizeText(yt.authedChannel.id || '?')})` : '-'],
                     ['配信中ライブ', yt.activeBroadcast ? `${sanitizeText(yt.activeBroadcast.title || '(no title)')} (${sanitizeText(yt.activeBroadcast.id || '?')})` : '-'],
                     ['ライブ検出', `${chatBadge}`],
@@ -849,6 +855,13 @@
             // Preview mode: shows a faint background + guide frames for local browser viewing
             const preview = (qp('preview','0') === '1');
             if(preview) document.body.classList.add('preview');
+
+            // Chat display mode:
+            // - (default) : show sidebar normally
+            // - hide      : hide sidebar entirely (for 2-browser-source OBS layout)
+            // - reserve   : keep sidebar frame but do not render iframe / messages (use as a guide)
+            const chatMode = String(qp('chatMode','')).toLowerCase();
+            if(chatMode === 'hide') document.body.classList.add('chat-hide');
 
             function layoutPreviewPanels(){
                 if(!preview) return;
@@ -1059,6 +1072,12 @@
                 // - If ?chat is provided, use iframe (legacy/external chat embed)
                 // - Otherwise, this pane will be filled by YouTube API (SSE) after OAuth
                 const chatContainer = document.getElementById('chat-body');
+                if(chatMode === 'hide' || chatMode === 'reserve'){
+                    // In 2-source OBS layout, chat is provided by a separate browser source.
+                    // Keep the sidebar empty (reserve) or hide it completely (hide).
+                    if(chatContainer) chatContainer.innerHTML = '';
+                    return;
+                }
                 if(chatUrl){
                     // Use provided chat URL (encoded allowed)
                     const iframe = document.createElement('iframe');

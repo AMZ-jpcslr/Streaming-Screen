@@ -64,6 +64,7 @@ BrowserSource の幅/高さを **1920×1080** に設定してください。
 - [ ] `/control` を開いて、ログインダイアログに ID/PW を入力
 - [ ] 「YouTubeにログイン（認可）」を押して **自分のYouTubeアカウント** で許可（初回だけ）
 - [ ] 配信開始前後だけ「コメント取得をON」にする（配信してない時はOFF推奨＝クォータ節約）
+- [ ] （任意）特別通知（スパチャ/メンバー等）が不要なら「特別通知をOFF」にする
 - [ ] 画面下部のフォームで表示を整える（お知らせ / X ID / ロゴ / チャットURLなど）
 - [ ] 「この内容を保存」を押す
 - [ ] OBS の BrowserSource には配信画面URL（`/`）を貼る
@@ -79,6 +80,7 @@ BrowserSource の幅/高さを **1920×1080** に設定してください。
 2. Basic認証のダイアログが出たら、管理者から渡された **ID/PW（CONTROL_USER/CONTROL_PASS）** を入力
 3. 管理ページの「YouTubeにログイン（認可）」を押して、自分のYouTubeアカウントで許可
 4. 配信開始前後だけ「コメント取得をON」にする（配信してない時はOFFでクォータ保護）
+	- 追加：スパチャ/メンバー等の「特別通知（Toast）」が不要な場合は「特別通知」をOFFにできます
 5. 画面下部のフォームで見た目（announce/xid/logo/chat等）を調整して「この内容を保存」
 6. OBS の BrowserSource には `https://<your-app>.railway.app/` を貼り付け（保存した設定が反映されます）
 
@@ -111,6 +113,24 @@ Railway Variables に以下を設定すると、管理ページが Basic 認証�
 3. サーバが `liveChatMessages.list` をポーリングしてイベントを抽出
 4. サーバが SSE (`/api/events`) でブラウザへ配信
 5. `main.html` が EventSource で受け取り、Toast 表示
+
+### 特別通知（Toast）だけをON/OFFする（Controlから）
+
+YouTube Data API のポーリング結果から「スパチャ/メンバー等」を検知して出す通知を、このプロジェクトでは **特別通知（Toast）** と呼んでいます。
+
+Control（`/control`）で、以下を **別々に** 切り替えられます：
+
+- **YouTubeコメント取得（YT ON/OFF）**：ポーリング自体のON/OFF（OFFだとAPIを叩かずクォータ0）
+- **特別通知（TOAST ON/OFF）**：スパチャ/メンバー等のToast送信だけをON/OFF
+
+重要：
+
+- **TOAST をONにしても、YT がOFFだと通知は来ません**（検知そのものがAPI結果に依存するため）
+- 逆に、YTをONのままでも **TOASTをOFF** にすれば、チャット表示を維持したまま通知だけ止められます
+
+### 環境変数（任意）: 特別通知の初期値
+
+- `TOAST_ENABLED` : 特別通知の初期スイッチ（`1`=ON, `0`=OFF。デフォルトはON）
 
 ### できること / できないこと
 
@@ -167,6 +187,7 @@ OAuth 同意画面のURL欄に以下を設定します（例）：
 #### 任意（運用チューニング）
 
 - `YT_ENABLED` : YouTubeコメント取得の初期スイッチ（`1`=ON, `0`=OFF。デフォルトはOFF）
+- `TOAST_ENABLED` : 特別通知の初期スイッチ（`1`=ON, `0`=OFF。デフォルトはON）
 - （任意）`YT_POLL_MS` : ポーリング間隔ms（デフォルト 10000）
 - （任意）`YT_CHANNEL_TTL_MS` : `channels.list(mine=true)` の再取得間隔ms（デフォルト 6時間）
 - （任意）`YT_BACKOFF_MAX_MS` : クォータ超過時の最大バックオフms（デフォルト 30分）
@@ -258,6 +279,219 @@ Railway の本番URLは HTTPS なので、Cookieの `secure` を true にした�
 
 - `announce` : お知らせ
 - `xid` : X ID（`@...`）
+
+## YouTubeチャットを「OBSカスタムCSS」でStreaming-Screen風にする（クォータ0運用）
+
+このプロジェクトの枠（`/`）と、YouTubeチャット（別ブラウザソース）を **2枚** で運用する場合に使えます。
+
+- 枠（このプロジェクト）: `/?chatMode=hide`（右のコメント枠を消す）
+- チャット（YouTube）: OBSブラウザソースに YouTubeチャットURLを貼り、下のCSSを「カスタムCSS」に貼る
+
+### A) ポップアウトURL向け（おすすめ・まずはこちら）
+
+YouTubeの「チャットをポップアウト」で開くURLを使う場合。
+OBSの「カスタムCSS」に、まずこのCSSをそのまま貼ってください。
+
+> YouTubeのDOMは今後変わる可能性があります。効かない部分が出たら、次のB（埋め込み）へ切り替えるのが早いです。
+
+```css
+/* Streaming-Screen style for YouTube Live Chat (POP-OUT)
+	 - Designed for OBS BrowserSource custom CSS
+	 - Intended width: ~320px
+*/
+
+:root{
+	--ss-bg1: rgba(20,30,55,0.82);
+	--ss-bg2: rgba(20,30,55,0.62);
+	--ss-fg: rgba(234,238,248,0.92);
+	--ss-muted: rgba(234,238,248,0.78);
+	--ss-line: rgba(234,238,248,0.10);
+	--ss-shadow: rgba(0,0,0,0.18);
+}
+
+/* Base: make the page transparent (overlay friendly) */
+html, body{
+	background: transparent !important;
+}
+
+/* Outer container (YouTube varies; keep selectors broad but safe) */
+yt-live-chat-app{
+	background: transparent !important;
+}
+
+/* Remove header / input area for a clean overlay look */
+yt-live-chat-header-renderer,
+yt-live-chat-message-input-renderer,
+yt-live-chat-ticker-renderer,
+yt-live-chat-banner-manager,
+yt-live-chat-viewer-engagement-message-renderer,
+yt-live-chat-renderer #input-panel{
+	display: none !important;
+}
+
+/* Let the scroller fill the whole view */
+yt-live-chat-renderer{
+	background: transparent !important;
+}
+
+yt-live-chat-item-list-renderer{
+	background: transparent !important;
+}
+
+/* Scroll area */
+#items,
+yt-live-chat-item-list-renderer #items{
+	padding: 12px 10px 14px 10px !important;
+}
+
+/* Message row (container) */
+yt-live-chat-text-message-renderer,
+yt-live-chat-paid-message-renderer,
+yt-live-chat-membership-item-renderer,
+yt-live-chat-sponsorships-gift-purchase-announcement-renderer,
+yt-live-chat-sponsorships-gift-redemption-announcement-renderer{
+	margin: 0 0 10px 0 !important;
+	padding: 0 !important;
+	border-radius: 14px !important;
+	overflow: visible !important;
+	background: transparent !important;
+}
+
+/* Bubble body */
+yt-live-chat-text-message-renderer #content,
+yt-live-chat-paid-message-renderer #content,
+yt-live-chat-membership-item-renderer #content{
+	position: relative !important;
+	padding: 10px 12px !important;
+	border-radius: 14px !important;
+	background: linear-gradient(180deg, var(--ss-bg1), var(--ss-bg2)) !important;
+	border: 1px solid var(--ss-line) !important;
+	box-shadow:
+		0 1px 0 rgba(255,255,255,0.03) inset,
+		0 10px 24px var(--ss-shadow) !important;
+}
+
+/* White offset frame behind bubble */
+yt-live-chat-text-message-renderer #content::after,
+yt-live-chat-paid-message-renderer #content::after,
+yt-live-chat-membership-item-renderer #content::after{
+	content: '' !important;
+	position: absolute !important;
+	inset: 0 !important;
+	transform: translate(6px, 6px) !important;
+	border-radius: inherit !important;
+	background: rgba(255,255,255,0.92) !important;
+	border: 1px solid rgba(255,255,255,0.88) !important;
+	box-shadow: 0 10px 18px rgba(0,0,0,0.18) !important;
+	z-index: -1 !important;
+	pointer-events: none !important;
+}
+
+/* Bubble tail */
+yt-live-chat-text-message-renderer #content::before,
+yt-live-chat-paid-message-renderer #content::before,
+yt-live-chat-membership-item-renderer #content::before{
+	content: '' !important;
+	position: absolute !important;
+	left: 10px !important;
+	bottom: -6px !important;
+	width: 12px !important;
+	height: 12px !important;
+	background: linear-gradient(180deg, var(--ss-bg1), var(--ss-bg2)) !important;
+	border-left: 1px solid var(--ss-line) !important;
+	border-bottom: 1px solid var(--ss-line) !important;
+	transform: rotate(45deg) !important;
+	border-bottom-left-radius: 3px !important;
+	filter: drop-shadow(0 6px 10px rgba(0,0,0,0.10)) !important;
+}
+
+/* Author name */
+#author-name{
+	color: var(--ss-fg) !important;
+	font-weight: 900 !important;
+}
+
+/* Message text */
+#message{
+	color: rgba(234,238,248,0.88) !important;
+	font-size: 16px !important;
+	line-height: 1.38 !important;
+	white-space: normal !important;
+	overflow-wrap: anywhere !important;
+	word-break: break-word !important;
+}
+
+/* Badges / icons (make them subtle) */
+yt-live-chat-author-badge-renderer,
+yt-live-chat-message-renderer #chip-badges{
+	opacity: 0.92 !important;
+}
+
+/* Paid message highlight (keep readable but not too flashy) */
+yt-live-chat-paid-message-renderer #content{
+	outline: 2px solid rgba(255,196,0,0.28) !important;
+}
+
+/* Membership highlight */
+yt-live-chat-membership-item-renderer #content{
+	outline: 2px solid rgba(0,214,143,0.26) !important;
+}
+
+/* Hide timestamps to reduce clutter */
+#timestamp{
+	display: none !important;
+}
+
+/* Scrollbar (Chromium in OBS) */
+::-webkit-scrollbar{ width: 10px !important; }
+::-webkit-scrollbar-track{ background: rgba(20,30,55,0.20) !important; border-radius: 999px !important; }
+::-webkit-scrollbar-thumb{ background: rgba(234,238,248,0.28) !important; border-radius: 999px !important; border: 2px solid rgba(20,30,55,0.22) !important; }
+::-webkit-scrollbar-thumb:hover{ background: rgba(234,238,248,0.40) !important; }
+```
+
+### B) 埋め込みURL向け（Aが効かない/不安定な時のバックアップ）
+
+YouTubeの `live_chat?v=...&embed_domain=...` など「埋め込み」系URLは、ポップアウトよりDOMが安定していることがあります。
+基本の見た目は上と同じで、セレクタだけ少し広めにしています。
+
+```css
+/* Streaming-Screen style for YouTube Live Chat (EMBED)
+	 - Use this when popout CSS doesn't apply well
+*/
+
+/* Reuse the same rules, but also target a few embed-only wrappers */
+html, body{ background: transparent !important; }
+body{ overflow: hidden !important; }
+
+yt-live-chat-app,
+yt-live-chat-renderer,
+#contents,
+#content{
+	background: transparent !important;
+}
+
+/* In some embed variants, the input/header wrappers differ */
+yt-live-chat-header-renderer,
+yt-live-chat-message-input-renderer,
+yt-live-chat-ticker-renderer,
+yt-live-chat-banner-manager,
+yt-live-chat-viewer-engagement-message-renderer,
+yt-live-chat-renderer #input-panel,
+#input-panel,
+#header{
+	display: none !important;
+}
+
+/* Then paste the entire A) CSS below this line if you want identical design.
+	 (Keeping this block short reduces accidental selector collisions.)
+*/
+```
+
+#### どっちを使う？（運用の指針）
+
+- まずは **A（ポップアウト）**：手順が簡単で、URLが素直
+- Aで崩れる/効かない箇所があるなら **B（埋め込み）**：DOMが安定しやすいことがある
+
 - `channel` : チャンネル名（ロゴ未指定時のプレースホルダー文字に使用）
 - `logo` : ロゴ画像 URL（URL エンコード推奨）
 - `chat` : チャット iframe の URL（URL エンコード推奨）

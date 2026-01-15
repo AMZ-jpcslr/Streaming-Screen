@@ -163,6 +163,10 @@ const YT_POLL_MS = Number(process.env.YT_POLL_MS || 15000);
 // Manual switch: if false, do not poll YouTube at all (prevents quota burn)
 // Can be toggled at runtime via /api/yt/enabled
 let ytEnabled = String(process.env.YT_ENABLED || '0') === '1';
+// Separate switch: if false, do not emit special toast notifications (superchat/membership/etc)
+// Chat messages may still be broadcast when ytEnabled is true.
+// Can be toggled at runtime via /api/toast/enabled
+let toastEnabled = String(process.env.TOAST_ENABLED || '1') !== '0';
 const YT_CHANNEL_TTL_MS = Number(process.env.YT_CHANNEL_TTL_MS || 6 * 60 * 60 * 1000); // 6h
 const YT_BACKOFF_MAX_MS = Number(process.env.YT_BACKOFF_MAX_MS || 30 * 60 * 1000); // 30m
 
@@ -476,7 +480,7 @@ async function pollLiveChat(oauthTokens) {
     }
 
     const special = classifySpecialEvent(item);
-    if (special) {
+    if (special && toastEnabled) {
       if (special.type === 'superchat') {
         broadcastEvent({
           kind: 'toast',
@@ -763,6 +767,23 @@ app.post('/api/yt/enabled', requireControl, express.json(), (req, res) => {
   res.json({ ytEnabled });
 });
 
+// ---- Manual special-toast (superchat/membership) switch ----
+app.get('/api/toast/enabled', (_req, res) => {
+  res.json({ toastEnabled });
+});
+
+app.post('/api/toast/enabled', requireControl, express.json(), (req, res) => {
+  const enabled = Boolean(req.body?.enabled);
+  toastEnabled = enabled;
+  // Tell clients (preview/status) immediately; doesn't affect polling.
+  broadcastEvent({
+    kind: 'status',
+    level: 'info',
+    message: `特別通知（Toast）を${toastEnabled ? 'ON' : 'OFF'}にしました`
+  });
+  res.json({ toastEnabled });
+});
+
 // ---- Overlay settings (saved) ----
 // GET is public so overlay clients can read the saved defaults.
 app.get('/api/settings', (_req, res) => {
@@ -795,6 +816,7 @@ app.get('/api/yt/state', (req, res) => {
     authed: Boolean(req.session?.oauthTokens),
     hasRefreshToken: Boolean(req.session?.oauthTokens?.refresh_token),
     ytEnabled,
+  toastEnabled,
     pollMs: Math.max(1200, YT_POLL_MS),
     pollMsEffective: lastPollMsEffective,
     polling: Boolean(pollTimeout),
