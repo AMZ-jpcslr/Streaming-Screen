@@ -837,6 +837,9 @@
                         }
                     };
                 }
+
+                // In preview mode, ensure the auth hint stays below this panel after content updates.
+                try{ if(typeof window.layoutPreviewPanels === 'function') window.layoutPreviewPanels(); }catch(_){ /* ignore */ }
             } catch(_){
                 // ignore
             }
@@ -851,11 +854,12 @@
                 if(!preview) return;
                 const sp = document.querySelector('.status-panel');
                 if(!sp) return;
-                // status-panel is placed at top:110px; keep a small gap below it.
-                const rect = sp.getBoundingClientRect();
-                const top = Math.round(rect.bottom + 14);
+                // Use stage-local coordinates so scrolling the page (preview) doesn't change layout.
+                const top = Math.round((sp.offsetTop || 0) + (sp.offsetHeight || 0) + 14);
                 document.documentElement.style.setProperty('--auth-hint-top', top + 'px');
             }
+            // make callable from pollStatus
+            window.layoutPreviewPanels = layoutPreviewPanels;
 
             // OBS 1080p mode (backward compatible):
             // The default layout is already designed for 1920x1080.
@@ -948,11 +952,10 @@
 
             // Keep the auth hint below the status panel even if the status panel changes height.
             if(preview){
-                // Initial layout
                 window.setTimeout(layoutPreviewPanels, 0);
-                // Recompute shortly after pollStatus updates DOM
-                window.setInterval(layoutPreviewPanels, 800);
                 window.addEventListener('resize', ()=>layoutPreviewPanels());
+                // If user scrolls in preview, keep it stable.
+                window.addEventListener('scroll', ()=>layoutPreviewPanels(), { passive: true });
             }
 
             // Clock: update immediately + keep it accurate.
