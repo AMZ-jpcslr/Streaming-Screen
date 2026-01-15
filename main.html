@@ -989,11 +989,11 @@
                 const chan = qp('channel','Channel Name');
 
                 const announce = qp('announce', (typeof saved.announce === 'string' && saved.announce) ? saved.announce : '今日はまったり攻略配信！コメント大歓迎');
-                const xid = qp('xid', (typeof saved.xid === 'string' && saved.xid) ? saved.xid : '@streaming_screen');
+                const xid = qp('xid', (typeof saved.xid === 'string' && saved.xid) ? saved.xid : '@hano_game');
                 const logo = qp('logo', (typeof saved.logo === 'string') ? saved.logo : '');
                 const chatUrl = qp('chat', (typeof saved.chat === 'string') ? saved.chat : '');
 
-                const fanart = qp('fanart', (typeof saved.fanart === 'string' && saved.fanart) ? saved.fanart : '#スクリーンアート');
+                const fanart = qp('fanart', (typeof saved.fanart === 'string' && saved.fanart) ? saved.fanart : '#おはの見');
 
                 // Legacy nodes (kept for compatibility)
                 document.getElementById('announce').textContent = announce;
