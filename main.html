@@ -467,10 +467,11 @@
         /* Small auth hint (preview only) */
         .auth-hint{
             position:absolute;
-            right:20px;
-            top:20px;
+            left:20px;
+            /* Placed below the status panel so it won't overlap preview chat */
+            top: 420px;
             z-index:60;
-            width: calc(var(--sidebar-w) - 40px);
+            width:min(560px, calc(var(--width-game) - 40px));
             padding:12px 12px;
             background: rgba(20, 30, 55, 0.86);
             border: 1px solid rgba(234,238,248,0.10);
@@ -481,6 +482,22 @@
         .auth-hint .a-title{font-weight:800;color: rgba(234,238,248,0.90); margin-bottom:6px;}
         .auth-hint .a-body{font-size:14px;color: rgba(234,238,248,0.74); line-height:1.35;}
         .auth-hint a{color: rgba(234,238,248,0.92); font-weight:700; text-decoration: underline;}
+        .auth-hint .a-actions{display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;}
+        .auth-hint .a-btn{
+            cursor:pointer;
+            padding:6px 10px;
+            border-radius:10px;
+            border:1px solid rgba(234,238,248,0.16);
+            background: rgba(20,30,55,0.55);
+            color: rgba(234,238,248,0.92);
+            font-weight:900;
+            font-size:12px;
+            user-select:none;
+        }
+        .auth-hint .a-btn:active{transform: translateY(1px);}
+        .auth-hint .a-btn.superchat{outline:2px solid rgba(255,196,0,0.35);}
+        .auth-hint .a-btn.membership{outline:2px solid rgba(0,214,143,0.32);}
+        .auth-hint .a-btn.gift{outline:2px solid rgba(92,167,255,0.32);}
         body.preview .auth-hint{display:block;}
 
         /* Debug/status panel (preview only) */
@@ -887,6 +904,38 @@
                 window.setInterval(pollStatus, 2500);
             }
 
+            // Preview-only notification test buttons
+            if(preview){
+                const bind = (id, fn) => {
+                    const el = document.getElementById(id);
+                    if(el) el.addEventListener('click', fn);
+                };
+                bind('btn-preview-superchat', ()=>{
+                    showToast({
+                        title: 'SUPERCHAT',
+                        body: 'テスト：◯◯さんが ¥5000 を送信しました！\nありがとうございます！',
+                        type: 'superchat',
+                        ms: 9000
+                    });
+                });
+                bind('btn-preview-membership', ()=>{
+                    showToast({
+                        title: 'MEMBERSHIP',
+                        body: 'テスト：◯◯さんがメンバーになりました！',
+                        type: 'membership',
+                        ms: 9000
+                    });
+                });
+                bind('btn-preview-gift', ()=>{
+                    showToast({
+                        title: 'GIFT',
+                        body: 'テスト：◯◯さんがメンバーギフトを贈りました！',
+                        type: 'gift',
+                        ms: 9000
+                    });
+                });
+            }
+
             // Clock: update immediately + keep it accurate.
             updateClock();
             window.setInterval(updateClock, 1000);
@@ -1021,6 +1070,11 @@
                 プレビュー中に、YouTubeの認証を済ませると<br>
                 スーパーチャット/メンバー通知を表示できます。<br>
                 <a href="/api/auth/start" target="_blank" rel="noopener">YouTubeにログイン（認可）</a>
+            </div>
+            <div class="a-actions" aria-hidden="true">
+                <div id="btn-preview-superchat" class="a-btn superchat">SuperChat通知テスト</div>
+                <div id="btn-preview-membership" class="a-btn membership">Membership通知テスト</div>
+                <div id="btn-preview-gift" class="a-btn gift">Gift通知テスト</div>
             </div>
         </div>
         <div id="toast" class="toast" aria-live="polite" aria-atomic="true">
